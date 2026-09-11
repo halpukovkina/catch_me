@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Поймай меня</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -90,10 +90,23 @@ var TELEPORT_MIN_DIST = 200;
 var BOOST_INTERVAL = 2.0;
 var BOOST_DURATION = 0.6;
 var BOOST_MULTIPLIER = 2.0;
+
 var SIZE_START = 70;
 var SIZE_MIN = 20;
 var SIZE_STEP = 1.5;
+
 var exitButtonZone = null;
+
+// ---------- АНИМАЦИЯ ПОПАДАНИЯ ----------
+var POP_DURATION_IN = 0.08;
+var POP_DURATION_OUT = 0.12;
+var POP_SCALE_MAX = 1.5;
+var SPAWN_DURATION = 0.15;
+
+// ---------- АНИМАЦИЯ ПРОМАХА (клик по ложному) ----------
+var MISS_BLINK_DURATION = 0.4; // 2 мигания за это время
+var MISS_FADE_DURATION = 0.3;
+var MISS_TOTAL = MISS_BLINK_DURATION + MISS_FADE_DURATION;
 
 // ---------- ЗВУК ----------
 var soundEnabled = true;
@@ -164,6 +177,9 @@ function playTone(freq, duration, type, volumeScale, freqEnd) {
 function soundHit(score) {
   var baseFreq = 700 + Math.min(score * 40, 800);
   playTone(baseFreq, 0.08, "square", 0.8);
+}
+function soundMissClick() {
+  playTone(180, 0.09, "triangle", 0.5);
 }
 function soundGameOver() { playTone(500, 0.5, "sine", 0.9, 120); }
 function soundStart()    { playTone(400, 0.15, "sine", 0.7, 800); }
@@ -343,6 +359,16 @@ function ensureMusicPlaying() {
   if (audioReady) startMusic();
 }
 // ============================================================
+
+// ---------- ЦВЕТ: затемнение ----------
+function darkenColor(hex, factor) {
+  var rgb = hexToRgb(hex);
+  if (!rgb) return hex;
+  var r = Math.round(rgb[0] * (1 - factor));
+  var g = Math.round(rgb[1] * (1 - factor));
+  var b = Math.round(rgb[2] * (1 - factor));
+  return rgbToHex(r, g, b);
+}
 
 // ---------- ХРАНИЛИЩА ----------
 var bgColor = null;
@@ -584,9 +610,88 @@ function overlapsExitZone(x, y, size) {
   return !(r < eb.x-pad || l > eb.x+eb.w+pad || b < eb.y-pad || t > eb.y+eb.h+pad);
 }
 
+// ---------- ЧАСТИЦЫ ----------
+var particles = [];
+
+function spawnParticles(x, y, baseSize, color, useImage) {
+  var count = 16;
+  for (var i = 0; i < count; i++) {
+    var angle = Math.random() * Math.PI * 2;
+    var speed = 100 + Math.random() * 200;
+    var size = 3 + Math.random() * 4;
+
+    // маленький кусочек исходного фото
+    var srcX = Math.random();
+    var srcY = Math.random();
+
+    particles.push({
+      x: x,
+      y: y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 0.6,
+      maxLife: 0.6,
+      size: size,
+      color: color,
+      useImage: useImage,
+      srcX: srcX,
+      srcY: srcY,
+      rotation: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 6
+    });
+  }
+}
+
+function updateParticles(dt) {
+  for (var i = particles.length - 1; i >= 0; i--) {
+    var p = particles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vx *= 0.94;
+    p.vy *= 0.94;
+    p.rotation += p.rotSpeed * dt;
+    p.life -= dt;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+function drawParticles() {
+  for (var i = 0; i < particles.length; i++) {
+    var p = particles[i];
+    var alpha = Math.max(0, p.life / p.maxLife);
+    ctx.globalAlpha = alpha;
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rotation);
+
+    var hs = p.size / 2;
+
+    if (p.useImage && sqImage) {
+      // рисуем маленький кусочек фото
+      var imgW = sqImage.width;
+      var imgH = sqImage.height;
+      var side = Math.min(imgW, imgH);
+      var cropX = p.srcX * (imgW - side);
+      var cropY = p.srcY * (imgH - side);
+      ctx.drawImage(
+        sqImage,
+        cropX, cropY, side, side,
+        -hs, -hs, p.size, p.size
+      );
+    } else {
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-hs, -hs, p.size, p.size);
+    }
+
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
 // ---------- КВАДРАТИК ----------
 function Square() {
-  this.size = SIZE_START;
+  this.baseSize = SIZE_START;
   this.x = Math.random() * (W - 100) + 50;
   this.y = Math.random() * (H - 100) + 50;
   this.color = squareColor || COLORS[Math.floor(Math.random() * COLORS.length)];
@@ -598,10 +703,79 @@ function Square() {
   this.boostTimer = BOOST_INTERVAL;
   this.boostActive = 0;
   this.disguiseTimer = 60;
+
+  // анимация попадания
+  this.popPhase = "none"; // "none" | "in" | "out"
+  this.popTime = 0;
+
+  // анимация появления
+  this.spawnTime = 0;
+
+  // анимация промаха (только для ложных)
+  this.missPhase = "none"; // "none" | "blink" | "fade"
+  this.missTime = 0;
+
+  // для кликов
+  this.dead = false; // больше нельзя кликнуть
+  this.removed = false; // полностью убрать (для ложных после анимации)
 }
+
+Square.prototype.startPop = function() {
+  this.popPhase = "in";
+  this.popTime = 0;
+  this.dead = true;
+};
+
+Square.prototype.startMiss = function() {
+  this.missPhase = "blink";
+  this.missTime = 0;
+  this.dead = true;
+};
 
 Square.prototype.update = function(mx, my, score, dt) {
   if (!dt) dt = 1/60;
+
+  // анимация попадания
+  if (this.popPhase !== "none") {
+    this.popTime += dt;
+    if (this.popPhase === "in") {
+      if (this.popTime >= POP_DURATION_IN) {
+        this.popPhase = "out";
+        this.popTime = 0;
+        // взрыв частиц
+        spawnParticles(this.x, this.y, this.baseSize, this.color, !!(sqImage && !this.fake));
+      }
+    } else if (this.popPhase === "out") {
+      if (this.popTime >= POP_DURATION_OUT) {
+        this.popPhase = "none";
+        this.removed = true;
+      }
+    }
+    return;
+  }
+
+  // анимация промаха (ложные)
+  if (this.missPhase !== "none") {
+    this.missTime += dt;
+    if (this.missPhase === "blink") {
+      if (this.missTime >= MISS_BLINK_DURATION) {
+        this.missPhase = "fade";
+        this.missTime = 0;
+      }
+    } else if (this.missPhase === "fade") {
+      if (this.missTime >= MISS_FADE_DURATION) {
+        this.missPhase = "none";
+        this.removed = true;
+      }
+    }
+    return;
+  }
+
+  // анимация появления
+  if (this.spawnTime < SPAWN_DURATION) {
+    this.spawnTime += dt;
+  }
+
   var current = LEVELS[0];
   for (var i = 0; i < LEVELS.length; i++) {
     if (score >= LEVELS[i].score) current = LEVELS[i];
@@ -609,7 +783,10 @@ Square.prototype.update = function(mx, my, score, dt) {
   this.speed = current.speed;
   this.behavior = this.fake ? "run" : current.behavior;
 
-  if (!this.fake) this.size = Math.max(SIZE_MIN, SIZE_START - score * SIZE_STEP);
+  if (!this.fake) {
+    this.baseSize = Math.max(SIZE_MIN, SIZE_START - score * SIZE_STEP);
+  }
+
   if (this.teleportCooldown > 0) this.teleportCooldown -= dt;
 
   var boostFactor = 1.0;
@@ -650,7 +827,7 @@ Square.prototype.update = function(mx, my, score, dt) {
       } while (
         attempts < 20 &&
         (Math.sqrt((newX-mx)*(newX-mx)+(newY-my)*(newY-my)) < TELEPORT_MIN_DIST ||
-         overlapsExitZone(newX, newY, this.size))
+         overlapsExitZone(newX, newY, this.baseSize))
       );
       this.x = newX; this.y = newY;
       this.teleportCooldown = TELEPORT_COOLDOWN;
@@ -682,28 +859,135 @@ Square.prototype.update = function(mx, my, score, dt) {
   var newX = this.x + moveX;
   var newY = this.y + moveY;
 
-  if (overlapsExitZone(newX, newY, this.size)) {
-    if (!overlapsExitZone(newX, this.y, this.size)) { newY = this.y; }
-    else if (!overlapsExitZone(this.x, newY, this.size)) { newX = this.x; }
+  if (overlapsExitZone(newX, newY, this.baseSize)) {
+    if (!overlapsExitZone(newX, this.y, this.baseSize)) { newY = this.y; }
+    else if (!overlapsExitZone(this.x, newY, this.baseSize)) { newX = this.x; }
     else { newX = this.x; newY = this.y; }
   }
 
   this.x = newX; this.y = newY;
-  this.x = Math.max(this.size, Math.min(W - this.size, this.x));
-  this.y = Math.max(this.size, Math.min(H - this.size, this.y));
+  this.x = Math.max(this.baseSize, Math.min(W - this.baseSize, this.x));
+  this.y = Math.max(this.baseSize, Math.min(H - this.baseSize, this.y));
 };
 
-Square.prototype.draw = function() {
-  if (sqImage && !this.fake) {
-    ctx.drawImage(sqImage, this.x - this.size/2, this.y - this.size/2, this.size, this.size);
-  } else {
-    ctx.fillStyle = this.color;
-    ctx.fillRect(this.x - this.size/2, this.y - this.size/2, this.size, this.size);
+// размер с учётом анимации (раздувание/сжатие/появление)
+Square.prototype.getCurrentSize = function() {
+  var s = this.baseSize;
+
+  // появление
+  if (this.spawnTime < SPAWN_DURATION) {
+    var t = this.spawnTime / SPAWN_DURATION;
+    s = this.baseSize * t;
   }
+
+  // попадание — раздувание
+  if (this.popPhase === "in") {
+    var t1 = this.popTime / POP_DURATION_IN;
+    s = this.baseSize * (1 + (POP_SCALE_MAX - 1) * t1);
+  }
+  // попадание — сжатие
+  else if (this.popPhase === "out") {
+    var t2 = this.popTime / POP_DURATION_OUT;
+    s = this.baseSize * POP_SCALE_MAX * (1 - t2);
+  }
+
+  return Math.max(0, s);
+};
+
+// прозрачность (для анимации промаха)
+Square.prototype.getAlpha = function() {
+  if (this.missPhase === "fade") {
+    var t = this.missTime / MISS_FADE_DURATION;
+    return Math.max(0, 1 - t);
+  }
+  return 1;
+};
+
+// мигание красным (для ложного)
+Square.prototype.getRedFlash = function() {
+  if (this.missPhase === "blink") {
+    // 2 мигания: за 0.4 сек — синусоида, 2 цикла
+    var t = this.missTime / MISS_BLINK_DURATION; // 0..1
+    var cycles = 2;
+    var val = Math.sin(t * Math.PI * 2 * cycles);
+    return Math.max(0, val) * 0.15; // максимум 15%
+  }
+  return 0;
 };
 
 Square.prototype.collides = function(mx, my) {
-  return Math.abs(mx - this.x) < this.size/2 && Math.abs(my - this.y) < this.size/2;
+  var s = this.getCurrentSize();
+  return Math.abs(mx - this.x) < s/2 && Math.abs(my - this.y) < s/2;
+};
+
+Square.prototype.draw = function() {
+  var size = this.getCurrentSize();
+  if (size <= 0) return;
+
+  var alpha = this.getAlpha();
+  var redFlash = this.getRedFlash();
+
+  ctx.globalAlpha = alpha;
+
+  var half = size / 2;
+  var x = this.x - half;
+  var y = this.y - half;
+
+  // ложные: без тени. Настоящие: с тенью и подложкой
+  if (!this.fake) {
+    // --- ТЕНЬ (только у настоящего) ---
+    ctx.save();
+    ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetX = 3;
+    ctx.shadowOffsetY = 4;
+
+    // рисуем подложку с тенью
+    ctx.fillStyle = "rgba(0,0,0,0)";
+    ctx.fillRect(x - 1, y - 1, size + 2, size + 2);
+
+    ctx.restore();
+  }
+
+  // --- ПОДЛОЖКА (у всех) ---
+  // на 1 пиксель больше со всех сторон, темнее на 25%
+  var padX = x - 1;
+  var padY = y - 1;
+  var padSize = size + 2;
+
+  if (sqImage && !this.fake) {
+    // затемнённое фото как подложка
+    ctx.drawImage(sqImage, padX, padY, padSize, padSize);
+    // затемняющий слой
+    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+    ctx.fillRect(padX, padY, padSize, padSize);
+  } else if (sqImage && this.fake) {
+    ctx.drawImage(sqImage, padX, padY, padSize, padSize);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+    ctx.fillRect(padX, padY, padSize, padSize);
+  } else {
+    var darkColor = darkenColor(this.color, 0.25);
+    ctx.fillStyle = darkColor;
+    ctx.fillRect(padX, padY, padSize, padSize);
+  }
+
+  // --- САМ КВАДРАТИК ---
+  if (sqImage && !this.fake) {
+    ctx.drawImage(sqImage, x, y, size, size);
+  } else if (sqImage && this.fake) {
+    ctx.drawImage(sqImage, x, y, size, size);
+  } else {
+    ctx.fillStyle = this.color;
+    ctx.fillRect(x, y, size, size);
+  }
+
+  // --- КРАСНОЕ МИГАНИЕ (для ложного при промахе) ---
+  if (redFlash > 0) {
+    ctx.fillStyle = "rgba(255, 0, 0, " + redFlash + ")";
+    ctx.fillRect(x, y, size, size);
+  }
+
+  ctx.globalAlpha = 1;
 };
 
 // ---------- «+1» ----------
@@ -739,15 +1023,18 @@ var game = {
   record: 0,
   square: null,
   fakeSquares: [],
+  deadSquares: [], // мёртвые (анимируются и исчезнут)
   mouse: { x: 200, y: 200 },
   buttons: [],
 
   reset: function() {
     this.square = new Square();
     this.fakeSquares = [];
+    this.deadSquares = [];
     this.score = 0;
     this.timeLeft = 30;
     popups = [];
+    particles = [];
   },
 
   start: function(mode) {
@@ -773,10 +1060,26 @@ var game = {
 
   update: function(dt) {
     updatePopups(dt);
-    if (this.state !== PLAYING) return;
+    updateParticles(dt);
+
+    if (this.state !== PLAYING) {
+      // обновляем мёртвые квадратики в любом состоянии, чтобы не зависали
+      for (var d = this.deadSquares.length - 1; d >= 0; d--) {
+        this.deadSquares[d].update(this.mouse.x, this.mouse.y, this.score, dt);
+        if (this.deadSquares[d].removed) this.deadSquares.splice(d, 1);
+      }
+      return;
+    }
+
     var mx = this.mouse.x, my = this.mouse.y;
     this.square.update(mx, my, this.score, dt);
 
+    // настоящий квадратик ушёл в "removed" — не должен случаться, но на всякий
+    if (this.square.removed) {
+      this.square = new Square();
+    }
+
+    // ложные
     if (this.square.behavior === "multiply" && this.fakeSquares.length < 2) {
       if (Math.random() < 0.015) {
         var fs = new Square();
@@ -784,8 +1087,15 @@ var game = {
         this.fakeSquares.push(fs);
       }
     }
-    for (var i = 0; i < this.fakeSquares.length; i++) {
+    for (var i = this.fakeSquares.length - 1; i >= 0; i--) {
       this.fakeSquares[i].update(mx, my, this.score, dt);
+      if (this.fakeSquares[i].removed) this.fakeSquares.splice(i, 1);
+    }
+
+    // мёртвые (анимация)
+    for (var d2 = this.deadSquares.length - 1; d2 >= 0; d2--) {
+      this.deadSquares[d2].update(mx, my, this.score, dt);
+      if (this.deadSquares[d2].removed) this.deadSquares.splice(d2, 1);
     }
 
     if (this.mode === "timed") {
@@ -885,10 +1195,19 @@ var game = {
           return;
         }
       }
-      if (this.square.collides(px, py)) {
+
+      // проверяем настоящий
+      if (!this.square.dead && this.square.collides(px, py)) {
         this.score++;
         spawnPopup(px, py);
         soundHit(this.score);
+
+        // старый начинает анимацию попадания
+        var old = this.square;
+        old.startPop();
+        this.deadSquares.push(old);
+
+        // создаём нового в другом месте
         var newX, newY, attempts = 0;
         do {
           newX = Math.random() * (W - 100) + 50;
@@ -897,13 +1216,36 @@ var game = {
         } while (
           attempts < 20 &&
           (Math.sqrt((newX-px)*(newX-px)+(newY-py)*(newY-py)) < 150 ||
-           overlapsExitZone(newX, newY, this.square.size))
+           overlapsExitZone(newX, newY, SIZE_START))
         );
+        this.square = new Square();
         this.square.x = newX;
         this.square.y = newY;
-        this.square.color = squareColor || COLORS[Math.floor(Math.random() * COLORS.length)];
+        this.square.spawnTime = 0;
+
+        // сбрасываем ложные квадраты, как раньше
+        for (var fi = 0; fi < this.fakeSquares.length; fi++) {
+          if (!this.fakeSquares[fi].dead) {
+            this.fakeSquares[fi].startMiss();
+            this.deadSquares.push(this.fakeSquares[fi]);
+          }
+        }
         this.fakeSquares = [];
+        return;
       }
+
+      // проверяем ложные
+      for (var fi2 = this.fakeSquares.length - 1; fi2 >= 0; fi2--) {
+        var fsq = this.fakeSquares[fi2];
+        if (!fsq.dead && fsq.collides(px, py)) {
+          soundMissClick();
+          fsq.startMiss();
+          this.deadSquares.push(fsq);
+          this.fakeSquares.splice(fi2, 1);
+          return;
+        }
+      }
+
       return;
     }
 
@@ -1277,9 +1619,8 @@ var game = {
     };
     drawButtons([bToggle]);
 
-    // ===== ЭФФЕКТЫ =====
-    var trackH = 10;    // толщина шкалы
-    var knobR = 18;     // радиус кружка
+    var trackH = 10;
+    var knobR = 18;
     var barY = H * 0.42;
     var barW = bw;
 
@@ -1304,7 +1645,6 @@ var game = {
 
     window.__fxBar = { x: bx, y: barY, w: barW, h: trackH };
 
-    // ===== МУЗЫКА =====
     var mbarY = H * 0.62;
 
     ctx.fillStyle = "#c0c0d0";
@@ -1343,9 +1683,17 @@ var game = {
     var exitY = 16;
     exitButtonZone = { x: exitX, y: exitY, w: exitSize, h: exitSize };
 
+    // ложные (настоящие живые)
     for (var i = 0; i < this.fakeSquares.length; i++) this.fakeSquares[i].draw();
+
+    // мёртвые (анимируются и исчезнут) — под текущим
+    for (var d = 0; d < this.deadSquares.length; d++) this.deadSquares[d].draw();
+
+    // настоящий
     this.square.draw();
+
     drawPopups();
+    drawParticles();
 
     ctx.fillStyle = "#f0f0f0";
     ctx.font = "bold 24px Arial";
@@ -1418,15 +1766,28 @@ var game = {
   }
 };
 
+// ---------- КНОПКИ С ТЕНЬЮ ----------
 function drawButtons(list) {
   for (var i = 0; i < list.length; i++) {
     var b = list[i];
     var hover = game.mouse.x >= b.x && game.mouse.x <= b.x + b.w &&
                 game.mouse.y >= b.y && game.mouse.y <= b.y + b.h;
+
+    // тень
+    ctx.save();
+    ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetX = 3;
+    ctx.shadowOffsetY = 4;
+
     ctx.fillStyle = hover ? "#3c3c50" : "#232332";
     ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.restore();
+
+    // рамка без тени
     ctx.strokeStyle = "#50505a"; ctx.lineWidth = 2;
     ctx.strokeRect(b.x, b.y, b.w, b.h);
+
     ctx.fillStyle = "#f0f0f0";
     ctx.font = "bold 18px Arial";
     ctx.textAlign = "center";
@@ -1449,9 +1810,7 @@ function posFromEvent(e) {
   return { x: cx - rect.left, y: cy - rect.top };
 }
 
-// --- определение цели перетаскивания ---
 function detectDragTarget(px, py) {
-  // для ползунков звука — зона по X широкая, по Y средняя (вокруг тонкой шкалы)
   var PAD_Y = 30;
   var PAD_X = 20;
 
@@ -1505,8 +1864,6 @@ function detectDragTarget(px, py) {
   return null;
 }
 
-// --- превращение X в значение громкости ---
-// выше/левее шкалы = 1, правее = 0, внутри = пропорционально
 function xToVolume(x, barX, trackW) {
   var left = barX;
   var right = barX + trackW;
@@ -1580,7 +1937,6 @@ function handleDrag(px, py) {
   }
 }
 
-// --- мышь ---
 canvas.addEventListener("mousemove", function(e) {
   var p = posFromEvent(e);
   game.mouse.x = p.x;
@@ -1591,7 +1947,6 @@ canvas.addEventListener("mousemove", function(e) {
 canvas.addEventListener("mousedown", function(e) {
   var p = posFromEvent(e);
   game.mouse.x = p.x; game.mouse.y = p.y;
-
   var target = detectDragTarget(p.x, p.y);
   if (target) {
     dragging = target;
@@ -1604,12 +1959,10 @@ canvas.addEventListener("mousedown", function(e) {
 canvas.addEventListener("mouseup", function() { dragging = null; });
 canvas.addEventListener("mouseleave", function() { dragging = null; });
 
-// --- тач ---
 canvas.addEventListener("touchstart", function(e) {
   e.preventDefault();
   var p = posFromEvent(e);
   game.mouse.x = p.x; game.mouse.y = p.y;
-
   var target = detectDragTarget(p.x, p.y);
   if (target) {
     dragging = target;
