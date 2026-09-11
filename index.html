@@ -64,8 +64,9 @@ var PLAYING = "playing";
 var GAME_OVER = "game_over";
 var SETTINGS = "settings";
 var SETTINGS_BG = "settings_bg";
+var SETTINGS_SQUARE = "settings_square";
 
-// ---------- ЦВЕТА КВАДРАТИКА ----------
+// ---------- ЦВЕТА КВАДРАТИКА (по умолчанию) ----------
 var COLORS = ["#ff5050", "#50ff78", "#50a0ff", "#ffdc50", "#dc50ff", "#50fff0"];
 
 // ---------- ПРОГРЕССИЯ ----------
@@ -79,13 +80,17 @@ var LEVELS = [
 ];
 
 // ---------- РАЗМЕР КВАДРАТИКА ----------
-var SIZE_START = 50;   // стартовый размер
-var SIZE_MIN = 14;     // минимальный размер
-var SIZE_STEP = 2.5;   // на сколько уменьшается за каждое очко
+var SIZE_START = 50;
+var SIZE_MIN = 14;
+var SIZE_STEP = 2.5;
 
 // ---------- ХРАНИЛИЩЕ ЦВЕТА ФОНА ----------
 var bgColor = null;
 try { bgColor = localStorage.getItem("catchme_bgcolor") || null; } catch(e) {}
+
+// ---------- ХРАНИЛИЩЕ ЦВЕТА КВАДРАТИКА ----------
+var squareColor = null;
+try { squareColor = localStorage.getItem("catchme_squarecolor") || null; } catch(e) {}
 
 // ---------- HSV / RGB / HEX ----------
 function hsvToRgb(h, s, v) {
@@ -118,14 +123,8 @@ function hexToRgb(hex) {
   return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
 }
 
-// ---------- СОСТОЯНИЕ ПИКЕРА ----------
-var picker = {
-  hue: 0,
-  sat: 1,
-  val: 1
-};
-
-function initPickerFromColor(hex) {
+// конвертация hex → hsv для инициализации пикера
+function initPickerFromColorObj(picker, hex) {
   if (!hex) return;
   var rgb = hexToRgb(hex);
   if (!rgb) return;
@@ -143,7 +142,14 @@ function initPickerFromColor(hex) {
   picker.sat = max === 0 ? 0 : d / max;
   picker.val = max;
 }
-initPickerFromColor(bgColor);
+
+// ---------- ПИКЕР ФОНА ----------
+var picker = { hue: 0, sat: 1, val: 1 };
+initPickerFromColorObj(picker, bgColor);
+
+// ---------- ПИКЕР КВАДРАТИКА ----------
+var squarePicker = { hue: 0, sat: 1, val: 1 };
+initPickerFromColorObj(squarePicker, squareColor);
 
 // ---------- ХРАНИЛИЩЕ ФОТО (IndexedDB) ----------
 var bgImage = null;
@@ -259,8 +265,9 @@ function hideFileLabel() {
 // ---------- ОБРАБОТКА HEX ----------
 var hexInput = document.getElementById("hexInput");
 var hexInputVisible = false;
+var hexTarget = "bg"; // "bg" или "square"
 
-function showHexInput(x, y, w, h, currentHex) {
+function showHexInput(x, y, w, h, currentHex, target) {
   hexInput.style.display = "block";
   hexInput.style.left = x + "px";
   hexInput.style.top = y + "px";
@@ -268,6 +275,7 @@ function showHexInput(x, y, w, h, currentHex) {
   hexInput.style.height = h + "px";
   hexInput.value = currentHex || "#000000";
   hexInputVisible = true;
+  hexTarget = target || "bg";
 }
 
 function hideHexInput() {
@@ -281,9 +289,16 @@ function applyHexInput() {
   if (val.length > 0 && val[0] !== "#") val = "#" + val;
   var rgb = hexToRgb(val);
   if (rgb) {
-    pickBgColor(rgbToHex(rgb[0], rgb[1], rgb[2]));
-    initPickerFromColor(bgColor);
+    var hex = rgbToHex(rgb[0], rgb[1], rgb[2]);
+    if (hexTarget === "square") {
+      pickSquareColor(hex);
+      initPickerFromColorObj(squarePicker, hex);
+    } else {
+      pickBgColor(hex);
+      initPickerFromColorObj(picker, hex);
+    }
   }
+  hexTarget = "bg";
   hideHexInput();
 }
 
@@ -298,7 +313,7 @@ hexInput.addEventListener("keydown", function(e) {
   }
 });
 
-// ---------- ПРИМЕНЕНИЕ ЦВЕТА ----------
+// ---------- ПРИМЕНЕНИЕ ЦВЕТА ФОНА ----------
 function pickBgColor(hex) {
   bgColor = hex;
   try { localStorage.setItem("catchme_bgcolor", hex); } catch(e) {}
@@ -313,12 +328,18 @@ function pickBgColor(hex) {
   }
 }
 
+// ---------- ПРИМЕНЕНИЕ ЦВЕТА КВАДРАТИКА ----------
+function pickSquareColor(hex) {
+  squareColor = hex;
+  try { localStorage.setItem("catchme_squarecolor", hex); } catch(e) {}
+}
+
 // ---------- КВАДРАТИК ----------
 function Square() {
-  this.size = SIZE_START;  // начинаем с большого
+  this.size = SIZE_START;
   this.x = Math.random() * (W - 100) + 50;
   this.y = Math.random() * (H - 100) + 50;
-  this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+  this.color = squareColor || COLORS[Math.floor(Math.random() * COLORS.length)];
   this.speed = 2.0;
   this.behavior = "run";
   this.dashTimer = 0;
@@ -337,8 +358,6 @@ Square.prototype.update = function(mx, my, score) {
   this.speed = current.speed;
   this.behavior = this.fake ? "run" : current.behavior;
 
-  // размер уменьшается с ростом счёта
-  // (только для настоящего квадратика, не для ложных)
   if (!this.fake) {
     this.size = Math.max(SIZE_MIN, SIZE_START - score * SIZE_STEP);
   }
@@ -370,10 +389,11 @@ Square.prototype.update = function(mx, my, score) {
       this.y += dy * this.speed * 0.6;
     }
   } else if (this.behavior === "disguise") {
-    // меняем ТОЛЬКО цвет — размер контролируется общим уменьшением
     this.disguiseTimer--;
     if (this.disguiseTimer <= 0) {
-      this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+      if (!squareColor) {
+        this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+      }
       this.disguiseTimer = 60;
     }
     this.x += dx * this.speed;
@@ -484,14 +504,15 @@ var game = {
         var sb = this.buttons[k];
         if (px >= sb.x && px <= sb.x + sb.w && py >= sb.y && py <= sb.y + sb.h) {
           if (sb.id === "bg") { this.state = SETTINGS_BG; return; }
+          if (sb.id === "square") { this.state = SETTINGS_SQUARE; return; }
           if (sb.id === "back") { this.state = MENU; return; }
         }
       }
       return;
     }
 
+    // ===== НАСТРОЙКИ ФОНА =====
     if (this.state === SETTINGS_BG) {
-      // градиент
       if (window.__pickerGrad) {
         var g = window.__pickerGrad;
         if (px >= g.x && px <= g.x + g.w && py >= g.y && py <= g.y + g.h) {
@@ -502,7 +523,6 @@ var game = {
           return;
         }
       }
-      // ползунок яркости
       if (window.__pickerBar) {
         var bar = window.__pickerBar;
         if (px >= bar.x && px <= bar.x + bar.w && py >= bar.y && py <= bar.y + bar.h) {
@@ -512,7 +532,6 @@ var game = {
           return;
         }
       }
-      // hue-полоса
       if (window.__pickerHue) {
         var hb = window.__pickerHue;
         if (px >= hb.x && px <= hb.x + hb.w && py >= hb.y && py <= hb.y + hb.h) {
@@ -524,7 +543,6 @@ var game = {
           return;
         }
       }
-      // кнопки
       for (var m = 0; m < this.buttons.length; m++) {
         var bb = this.buttons[m];
         if (px >= bb.x && px <= bb.x + bb.w && py >= bb.y && py <= bb.y + bb.h) {
@@ -534,8 +552,7 @@ var game = {
             return;
           }
           if (bb.id === "hex") {
-            var hexBtn = bb;
-            showHexInput(hexBtn.x, hexBtn.y, hexBtn.w, hexBtn.h, bgColor || "#000000");
+            showHexInput(bb.x, bb.y, bb.w, bb.h, bgColor || "#000000", "bg");
             hexInput.focus();
             hexInput.select();
             return;
@@ -545,8 +562,59 @@ var game = {
       return;
     }
 
+    // ===== НАСТРОЙКИ КВАДРАТИКА =====
+    if (this.state === SETTINGS_SQUARE) {
+      if (window.__sqPickerGrad) {
+        var sg = window.__sqPickerGrad;
+        if (px >= sg.x && px <= sg.x + sg.w && py >= sg.y && py <= sg.y + sg.h) {
+          squarePicker.sat = Math.max(0, Math.min(1, (px - sg.x) / sg.w));
+          squarePicker.val = 1 - Math.max(0, Math.min(1, (py - sg.y) / sg.h));
+          var srgb = hsvToRgb(squarePicker.hue, squarePicker.sat, squarePicker.val);
+          pickSquareColor(rgbToHex(srgb[0], srgb[1], srgb[2]));
+          return;
+        }
+      }
+      if (window.__sqPickerBar) {
+        var sbar = window.__sqPickerBar;
+        if (px >= sbar.x && px <= sbar.x + sbar.w && py >= sbar.y && py <= sbar.y + sbar.h) {
+          squarePicker.val = 1 - Math.max(0, Math.min(1, (py - sbar.y) / sbar.h));
+          var srgb2 = hsvToRgb(squarePicker.hue, squarePicker.sat, squarePicker.val);
+          pickSquareColor(rgbToHex(srgb2[0], srgb2[1], srgb2[2]));
+          return;
+        }
+      }
+      if (window.__sqPickerHue) {
+        var shb = window.__sqPickerHue;
+        if (px >= shb.x && px <= shb.x + shb.w && py >= shb.y && py <= shb.y + shb.h) {
+          squarePicker.hue = ((px - shb.x) / shb.w) * 360;
+          if (squarePicker.hue < 0) squarePicker.hue = 0;
+          if (squarePicker.hue > 360) squarePicker.hue = 360;
+          var srgb3 = hsvToRgb(squarePicker.hue, squarePicker.sat, squarePicker.val);
+          pickSquareColor(rgbToHex(srgb3[0], srgb3[1], srgb3[2]));
+          return;
+        }
+      }
+      for (var sm = 0; sm < this.buttons.length; sm++) {
+        var sbb = this.buttons[sm];
+        if (px >= sbb.x && px <= sbb.x + sbb.w && py >= sbb.y && py <= sbb.y + sbb.h) {
+          if (sbb.id === "back") {
+            hideHexInput();
+            this.state = SETTINGS;
+            return;
+          }
+          if (sbb.id === "hex") {
+            showHexInput(sbb.x, sbb.y, sbb.w, sbb.h, squareColor || "#ff5050", "square");
+            hexInput.focus();
+            hexInput.select();
+            return;
+          }
+        }
+      }
+      return;
+    }
+
+    // ===== ИГРА =====
     if (this.state === PLAYING) {
-      // кнопка-крестик
       if (window.__exitButton) {
         var eb = window.__exitButton;
         if (px >= eb.x && px <= eb.x + eb.w && py >= eb.y && py <= eb.y + eb.h) {
@@ -558,7 +626,7 @@ var game = {
         this.score++;
         this.square.x = Math.random() * (W - 100) + 50;
         this.square.y = Math.random() * (H - 100) + 50;
-        this.square.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+        this.square.color = squareColor || COLORS[Math.floor(Math.random() * COLORS.length)];
         this.fakeSquares = [];
       } else if (this.mode === "endless") {
         this.misses++;
@@ -606,6 +674,7 @@ var game = {
     else if (this.state === GAME_OVER) this.drawGameOver();
     else if (this.state === SETTINGS) this.drawSettings();
     else if (this.state === SETTINGS_BG) this.drawSettingsBg();
+    else if (this.state === SETTINGS_SQUARE) this.drawSettingsSquare();
   },
 
   drawMenu: function() {
@@ -642,17 +711,19 @@ var game = {
     ctx.font = "bold 44px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("НАСТРОЙКИ", W / 2, H * 0.20);
+    ctx.fillText("НАСТРОЙКИ", W / 2, H * 0.18);
 
     var bw = Math.min(320, W - 60);
     var bx = (W - bw) / 2;
 
-    var bBg = { x: bx, y: H * 0.35, w: bw, h: 60, text: "Фон", id: "bg" };
-    var bBack = { x: bx, y: H * 0.35 + 200, w: bw, h: 60, text: "Назад", id: "back" };
-    this.buttons = [bBg, bBack];
+    var bBg = { x: bx, y: H * 0.32, w: bw, h: 60, text: "Фон", id: "bg" };
+    var bSq = { x: bx, y: H * 0.32 + 75, w: bw, h: 60, text: "Квадратик", id: "square" };
+    var bBack = { x: bx, y: H * 0.32 + 200, w: bw, h: 60, text: "Назад", id: "back" };
+    this.buttons = [bBg, bSq, bBack];
     drawButtons(this.buttons);
   },
 
+  // ===== НАСТРОЙКА ФОНА =====
   drawSettingsBg: function() {
     this.buttons = [];
     hideFileLabel();
@@ -663,7 +734,6 @@ var game = {
     ctx.textBaseline = "middle";
     ctx.fillText("ФОН", W / 2, H * 0.06);
 
-    // ---- ГРАДИЕНТ HSV ----
     var gradW = Math.min(W - 140, 400);
     var gradH = Math.min(H * 0.28, 200);
     var gradX = (W - gradW) / 2 - 20;
@@ -717,7 +787,6 @@ var game = {
 
     window.__pickerGrad = { x: gradX, y: gradY, w: gradW, h: gradH };
 
-    // ---- ПОЛЗУНОК ЯРКОСТИ ----
     var barW = 40;
     var barH = gradH;
     var barX = gradX + gradW + 20;
@@ -751,7 +820,7 @@ var game = {
 
     window.__pickerBar = { x: barX, y: barY, w: barW, h: barH };
 
-    // ---- HUE-ПОЛОСА ----
+    // hue-полоса
     var hueW = gradW + 20 + barW;
     var hueH = 24;
     var hueX = gradX;
@@ -783,17 +852,14 @@ var game = {
 
     window.__pickerHue = { x: hueX, y: hueY, w: hueW, h: hueH };
 
-    // ---- КНОПКИ ----
     var btnW = Math.min(W - 80, 260);
     var btnX = (W - btnW) / 2;
     var btnY = hueY + hueH + 24;
 
     var bHex = { x: btnX, y: btnY, w: btnW, h: 50,
                  text: "Ввести HEX: " + (bgColor || "#000000"), id: "hex" };
-
     var bUp = { x: btnX, y: btnY + 62, w: btnW, h: 55,
                 text: "Загрузить фото", id: "upload" };
-
     var bBack = { x: btnX, y: btnY + 127, w: btnW, h: 55,
                   text: "Назад", id: "back" };
 
@@ -801,6 +867,181 @@ var game = {
     drawButtons(this.buttons);
 
     showFileLabel(bUp.x, bUp.y, bUp.w, bUp.h);
+  },
+
+  // ===== НАСТРОЙКА КВАДРАТИКА =====
+  drawSettingsSquare: function() {
+    this.buttons = [];
+    hideFileLabel();
+
+    ctx.fillStyle = "#f0f0f0";
+    ctx.font = "bold 32px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("КВАДРАТИК", W / 2, H * 0.04);
+
+    // ---- БЕЛОЕ ОКНО С ПРЕВЬЮ ----
+    var prevW = Math.min(W - 120, 220);
+    var prevH = 90;
+    var prevX = (W - prevW) / 2;
+    var prevY = H * 0.085;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(prevX, prevY, prevW, prevH);
+
+    ctx.strokeStyle = "#a0a0b0";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(prevX, prevY, prevW, prevH);
+
+    // подпись
+    ctx.fillStyle = "#808090";
+    ctx.font = "11px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText("как выглядит", prevX + prevW / 2, prevY + 5);
+
+    // квадратик в превью
+    var sampleSize = 34;
+    var sampleColor = squareColor || "#ff5050";
+    ctx.fillStyle = sampleColor;
+    ctx.fillRect(
+      prevX + prevW / 2 - sampleSize / 2,
+      prevY + prevH / 2 - sampleSize / 2 + 6,
+      sampleSize, sampleSize
+    );
+
+    // ---- ГРАДИЕНТ ----
+    var gradW = Math.min(W - 140, 400);
+    var gradH = Math.min(H * 0.18, 140);
+    var gradX = (W - gradW) / 2 - 20;
+    var gradY = prevY + prevH + 16;
+
+    if (!window.__sqGradCache ||
+        window.__sqGradCache.width !== gradW ||
+        window.__sqGradCache.height !== gradH ||
+        window.__sqGradHue !== squarePicker.hue) {
+
+      window.__sqGradCache = document.createElement("canvas");
+      window.__sqGradCache.width = gradW;
+      window.__sqGradCache.height = gradH;
+      var gctx2 = window.__sqGradCache.getContext("2d");
+      var img2 = gctx2.createImageData(gradW, gradH);
+      var data2 = img2.data;
+      for (var yy2 = 0; yy2 < gradH; yy2++) {
+        for (var xx2 = 0; xx2 < gradW; xx2++) {
+          var s2 = xx2 / gradW;
+          var v2 = 1 - yy2 / gradH;
+          var rgb2 = hsvToRgb(squarePicker.hue, s2, v2);
+          var idx2 = (yy2 * gradW + xx2) * 4;
+          data2[idx2] = rgb2[0];
+          data2[idx2 + 1] = rgb2[1];
+          data2[idx2 + 2] = rgb2[2];
+          data2[idx2 + 3] = 255;
+        }
+      }
+      gctx2.putImageData(img2, 0, 0);
+    }
+    window.__sqGradHue = squarePicker.hue;
+
+    ctx.drawImage(window.__sqGradCache, gradX, gradY, gradW, gradH);
+
+    ctx.strokeStyle = "#606070";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(gradX, gradY, gradW, gradH);
+
+    var smarkX = gradX + squarePicker.sat * gradW;
+    var smarkY = gradY + (1 - squarePicker.val) * gradH;
+    ctx.beginPath();
+    ctx.arc(smarkX, smarkY, 9, 0, Math.PI * 2);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(smarkX, smarkY, 9, 0, Math.PI * 2);
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    window.__sqPickerGrad = { x: gradX, y: gradY, w: gradW, h: gradH };
+
+    // ползунок яркости
+    var sbarW = 40;
+    var sbarH = gradH;
+    var sbarX = gradX + gradW + 20;
+    var sbarY = gradY;
+
+    var sgrad = ctx.createLinearGradient(0, sbarY, 0, sbarY + sbarH);
+    var stopRgb = hsvToRgb(squarePicker.hue, squarePicker.sat, 1);
+    sgrad.addColorStop(0, "rgb(" + stopRgb[0] + "," + stopRgb[1] + "," + stopRgb[2] + ")");
+    sgrad.addColorStop(1, "#000000");
+    ctx.fillStyle = sgrad;
+    ctx.fillRect(sbarX, sbarY, sbarW, sbarH);
+
+    ctx.strokeStyle = "#606070";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sbarX, sbarY, sbarW, sbarH);
+
+    var svalY = sbarY + (1 - squarePicker.val) * sbarH;
+    ctx.beginPath();
+    ctx.moveTo(sbarX - 6, svalY);
+    ctx.lineTo(sbarX, svalY - 6);
+    ctx.lineTo(sbarX + sbarW + 6, svalY - 6);
+    ctx.lineTo(sbarX + sbarW, svalY);
+    ctx.lineTo(sbarX + sbarW + 6, svalY + 6);
+    ctx.lineTo(sbarX, svalY + 6);
+    ctx.closePath();
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    window.__sqPickerBar = { x: sbarX, y: sbarY, w: sbarW, h: sbarH };
+
+    // hue-полоса
+    var shueW = gradW + 20 + sbarW;
+    var shueH = 22;
+    var shueX = gradX;
+    var shueY = gradY + gradH + 12;
+
+    var shueGrad = ctx.createLinearGradient(shueX, 0, shueX + shueW, 0);
+    shueGrad.addColorStop(0.000, "#ff0000");
+    shueGrad.addColorStop(0.167, "#ffff00");
+    shueGrad.addColorStop(0.333, "#00ff00");
+    shueGrad.addColorStop(0.500, "#00ffff");
+    shueGrad.addColorStop(0.667, "#0000ff");
+    shueGrad.addColorStop(0.833, "#ff00ff");
+    shueGrad.addColorStop(1.000, "#ff0000");
+    ctx.fillStyle = shueGrad;
+    ctx.fillRect(shueX, shueY, shueW, shueH);
+
+    ctx.strokeStyle = "#606070";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(shueX, shueY, shueW, shueH);
+
+    var shueMarkX = shueX + (squarePicker.hue / 360) * shueW;
+    ctx.beginPath();
+    ctx.arc(shueMarkX, shueY + shueH / 2, 9, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    window.__sqPickerHue = { x: shueX, y: shueY, w: shueW, h: shueH };
+
+    // кнопки
+    var sbtnW = Math.min(W - 80, 260);
+    var sbtnX = (W - sbtnW) / 2;
+    var sbtnY = shueY + shueH + 20;
+
+    var sbHex = { x: sbtnX, y: sbtnY, w: sbtnW, h: 50,
+                  text: "Ввести HEX: " + (squareColor || "#ff5050"), id: "hex" };
+    var sbBack = { x: sbtnX, y: sbtnY + 62, w: sbtnW, h: 55,
+                   text: "Назад", id: "back" };
+
+    this.buttons = [sbHex, sbBack];
+    drawButtons(this.buttons);
   },
 
   drawPlaying: function() {
