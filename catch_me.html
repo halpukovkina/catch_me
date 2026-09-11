@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Поймай меня</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #0a0a0f;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+    user-select: none;
+  }
+  canvas { display: block; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+var canvas = document.getElementById("game");
+var ctx = canvas.getContext("2d");
+
+var W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resize);
+resize();
+
+var MENU = "menu", PLAYING = "playing", GAME_OVER = "game_over";
+var COLORS = ["#ff5050", "#50ff78", "#50a0ff", "#ffdc50", "#dc50ff", "#50fff0"];
+
+var LEVELS = [
+  { score: 0,  speed: 1.2, behavior: "run" },
+  { score: 3,  speed: 1.6, behavior: "dash" },
+  { score: 6,  speed: 2.0, behavior: "teleport" },
+  { score: 9,  speed: 2.4, behavior: "disguise" },
+  { score: 12, speed: 2.8, behavior: "multiply" },
+  { score: 15, speed: 3.2, behavior: "hunt" }
+];
+
+function Square() {
+  this.size = 30;
+  this.x = Math.random() * (W - 100) + 50;
+  this.y = Math.random() * (H - 100) + 50;
+  this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+  this.speed = 2.0;
+  this.behavior = "run";
+  this.dashTimer = 0;
+  this.dashDx = 0;
+  this.dashDy = 0;
+  this.disguiseTimer = 0;
+  this.huntTimer = 0;
+  this.fake = false;
+}
+
+Square.prototype.update = function(mx, my, score) {
+  var current = LEVELS[0];
+  for (var i = 0; i < LEVELS.length; i++) {
+    if (score >= LEVELS[i].score) current = LEVELS[i];
+  }
+  this.speed = current.speed + score * 0.03;
+  this.behavior = this.fake ? "run" : current.behavior;
+
+  var dx = this.x - mx;
+  var dy = this.y - my;
+  var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+  dx /= dist; dy /= dist;
+
+  if (this.behavior === "run") {
+    this.x += dx * this.speed;
+    this.y += dy * this.speed;
+  } else if (this.behavior === "dash") {
+    this.dashTimer--;
+    if (this.dashTimer <= 0) {
+      var angle = Math.random() * Math.PI * 2;
+      this.dashDx = Math.cos(angle);
+      this.dashDy = Math.sin(angle);
+      this.dashTimer = 20 + Math.random() * 20;
+    }
+    this.x += dx * this.speed * 0.5 + this.dashDx * 4;
+    this.y += dy * this.speed * 0.5 + this.dashDy * 4;
+  } else if (this.behavior === "teleport") {
+    if (dist < 120) {
+      this.x = Math.random() * (W - 100) + 50;
+      this.y = Math.random() * (H - 100) + 50;
+    } else {
+      this.x += dx * this.speed * 0.6;
+      this.y += dy * this.speed * 0.6;
+    }
+  } else if (this.behavior === "disguise") {
+    this.disguiseTimer--;
+    if (this.disguiseTimer <= 0) {
+      this.size = [20, 30, 45][Math.floor(Math.random() * 3)];
+      this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+      this.disguiseTimer = 60;
+    }
+    this.x += dx * this.speed;
+    this.y += dy * this.speed;
+  } else if (this.behavior === "multiply") {
+    this.x += dx * this.speed;
+    this.y += dy * this.speed;
+  } else if (this.behavior === "hunt") {
+    this.huntTimer--;
+    if (this.huntTimer <= 0) {
+      this.x -= dx * this.speed * 1.5;
+      this.y -= dy * this.speed * 1.5;
+      this.huntTimer = 90;
+    } else {
+      this.x += dx * this.speed * 0.5;
+      this.y += dy * this.speed * 0.5;
+    }
+  }
+
+  this.x = Math.max(this.size, Math.min(W - this.size, this.x));
+  this.y = Math.max(this.size, Math.min(H - this.size, this.y));
+};
+
+Square.prototype.draw = function() {
+  ctx.fillStyle = this.color;
+  ctx.fillRect(this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
+};
+
+Square.prototype.collides = function(mx, my) {
+  return Math.abs(mx - this.x) < this.size / 2 && Math.abs(my - this.y) < this.size / 2;
+};
+
+var game = {
+  state: MENU,
+  mode: "timed",
+  score: 0,
+  misses: 0,
+  timeLeft: 30,
+  record: parseInt(localStorage.getItem("catchme_record") || "0"),
+  square: null,
+  fakeSquares: [],
+  mouse: { x: 200, y: 200 },
+  buttons: [],
+
+  reset: function() {
+    this.square = new Square();
+    this.fakeSquares = [];
+    this.score = 0;
+    this.misses = 0;
+    this.timeLeft = 30;
+  },
+
+  start: function(mode) {
+    this.reset();
+    this.mode = mode;
+    this.state = PLAYING;
+  },
+
+  end: function() {
+    this.state = GAME_OVER;
+    if (this.score > this.record) {
+      this.record = this.score;
+      try { localStorage.setItem("catchme_record", this.record); } catch(e) {}
+    }
+  },
+
+  update: function(dt) {
+    if (this.state !== PLAYING) return;
+    var mx = this.mouse.x, my = this.mouse.y;
+    this.square.update(mx, my, this.score);
+
+    if (this.square.behavior === "multiply" && this.fakeSquares.length < 2) {
+      if (Math.random() < 0.015) {
+        var fs = new Square();
+        fs.fake = true;
+        this.fakeSquares.push(fs);
+      }
+    }
+    for (var i = 0; i < this.fakeSquares.length; i++) {
+      this.fakeSquares[i].update(mx, my, this.score);
+    }
+
+    if (this.mode === "timed") {
+      this.timeLeft -= dt;
+      if (this.timeLeft <= 0) { this.timeLeft = 0; this.end(); }
+    }
+  },
+
+  click: function(px, py) {
+    if (this.state === MENU) {
+      for (var i = 0; i < this.buttons.length; i++) {
+        var b = this.buttons[i];
+        if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) {
+          if (b.id === "timed") this.start("timed");
+          if (b.id === "endless") this.start("endless");
+          return;
+        }
+      }
+      return;
+    }
+
+    if (this.state === PLAYING) {
+      if (this.square.collides(px, py)) {
+        this.score++;
+        this.square.x = Math.random() * (W - 100) + 50;
+        this.square.y = Math.random() * (H - 100) + 50;
+        this.square.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+        this.fakeSquares = [];
+      } else if (this.mode === "endless") {
+        this.misses++;
+        if (this.misses >= 3) this.end();
+      }
+      return;
+    }
+
+    if (this.state === GAME_OVER) {
+      for (var j = 0; j < this.buttons.length; j++) {
+        var b2 = this.buttons[j];
+        if (px >= b2.x && px <= b2.x + b2.w && py >= b2.y && py <= b2.y + b2.h) {
+          if (b2.id === "again") this.start(this.mode);
+          if (b2.id === "menu") this.state = MENU;
+          return;
+        }
+      }
+    }
+  },
+
+  draw: function() {
+    ctx.fillStyle = "#0a0a0f";
+    ctx.fillRect(0, 0, W, H);
+
+    if (this.state === MENU) this.drawMenu();
+    else if (this.state === PLAYING) this.drawPlaying();
+    else if (this.state === GAME_OVER) this.drawGameOver();
+  },
+
+  drawMenu: function() {
+    this.buttons = [];
+    ctx.fillStyle = "#f0f0f0";
+    ctx.font = "bold 52px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("ПОЙМАЙ МЕНЯ", W / 2, H * 0.25);
+
+    ctx.fillStyle = "#808090";
+    ctx.font = "20px Arial";
+    ctx.fillText("Рекорд: " + this.record, W / 2, H * 0.35);
+
+    var bw = Math.min(320, W - 60);
+    var bx = (W - bw) / 2;
+
+    var b1 = { x: bx, y: H * 0.50, w: bw, h: 60, text: "На время (30 сек)", id: "timed" };
+    var b2 = { x: bx, y: H * 0.50 + 80, w: bw, h: 60, text: "Бесконечный", id: "endless" };
+    this.buttons = [b1, b2];
+    drawButtons(this.buttons);
+  },
+
+  drawPlaying: function() {
+    for (var i = 0; i < this.fakeSquares.length; i++) this.fakeSquares[i].draw();
+    this.square.draw();
+
+    ctx.fillStyle = "#f0f0f0";
+    ctx.font = "bold 26px Arial";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText("Очки: " + this.score, 20, 20);
+
+    ctx.textAlign = "right";
+    if (this.mode === "timed") {
+      ctx.fillText("Время: " + Math.ceil(this.timeLeft), W - 20, 20);
+    } else {
+      ctx.fillText("Промахи: " + this.misses + "/3", W - 20, 20);
+    }
+  },
+
+  drawGameOver: function() {
+    this.buttons = [];
+    ctx.fillStyle = "#f0f0f0";
+    ctx.font = "bold 48px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Игра окончена", W / 2, H * 0.22);
+
+    ctx.font = "28px Arial";
+    ctx.fillText("Твой счёт: " + this.score, W / 2, H * 0.36);
+
+    ctx.fillStyle = "#808090";
+    ctx.font = "22px Arial";
+    ctx.fillText("Рекорд: " + this.record, W / 2, H * 0.44);
+
+    var msg;
+    if (this.score >= 15) msg = "Ты его поймал. Но он вернётся.";
+    else if (this.score >= 8) msg = "Хорошо. Но он ещё быстрее.";
+    else msg = "Он всё ещё быстрее тебя.";
+    ctx.fillStyle = "#f0f0f0";
+    ctx.font = "20px Arial";
+    ctx.fillText(msg, W / 2, H * 0.53);
+
+    var bw = Math.min(320, W - 60);
+    var bx = (W - bw) / 2;
+    var half = (bw - 20) / 2;
+
+    var b1 = { x: bx, y: H * 0.68, w: half, h: 55, text: "Ещё раз", id: "again" };
+    var b2 = { x: bx + half + 20, y: H * 0.68, w: half, h: 55, text: "В меню", id: "menu" };
+    this.buttons = [b1, b2];
+    drawButtons(this.buttons);
+  }
+};
+
+function drawButtons(list) {
+  for (var i = 0; i < list.length; i++) {
+    var b = list[i];
+    var hover = game.mouse.x >= b.x && game.mouse.x <= b.x + b.w &&
+                game.mouse.y >= b.y && game.mouse.y <= b.y + b.h;
+    ctx.fillStyle = hover ? "#3c3c50" : "#232332";
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.strokeStyle = "#50505a";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
+
+    ctx.fillStyle = "#f0f0f0";
+    ctx.font = "bold 20px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(b.text, b.x + b.w / 2, b.y + b.h / 2);
+  }
+}
+
+function posFromEvent(e) {
+  var rect = canvas.getBoundingClientRect();
+  var cx, cy;
+  if (e.touches && e.touches.length) {
+    cx = e.touches[0].clientX;
+    cy = e.touches[0].clientY;
+  } else {
+    cx = e.clientX;
+    cy = e.clientY;
+  }
+  return { x: cx - rect.left, y: cy - rect.top };
+}
+
+canvas.addEventListener("mousemove", function(e) {
+  var p = posFromEvent(e);
+  game.mouse.x = p.x;
+  game.mouse.y = p.y;
+});
+
+canvas.addEventListener("click", function(e) {
+  var p = posFromEvent(e);
+  game.click(p.x, p.y);
+});
+
+canvas.addEventListener("touchstart", function(e) {
+  e.preventDefault();
+  var p = posFromEvent(e);
+  game.mouse.x = p.x;
+  game.mouse.y = p.y;
+  game.click(p.x, p.y);
+}, { passive: false });
+
+canvas.addEventListener("touchmove", function(e) {
+  e.preventDefault();
+  var p = posFromEvent(e);
+  game.mouse.x = p.x;
+  game.mouse.y = p.y;
+}, { passive: false });
+
+var lastTime = Date.now();
+function loop() {
+  var now = Date.now();
+  var dt = Math.min((now - lastTime) / 1000, 0.1);
+  lastTime = now;
+  game.update(dt);
+  game.draw();
+  requestAnimationFrame(loop);
+}
+
+game.reset();
+loop();
+</script>
+</body>
+</html>
