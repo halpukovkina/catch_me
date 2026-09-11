@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Поймай меня</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
 <style>
   @font-face {
     font-family: "Cascadia Code";
@@ -72,44 +72,43 @@ resize();
 
 var dragging = null;
 
-// ---------- ПАЛИТРА (стандартные цвета квадратика) ----------
+// ---------- ПАЛИТРА ----------
 var COLORS = ["#ff5050", "#50ff78", "#50a0ff", "#ffdc50", "#dc50ff", "#50fff0"];
 
 // ---------- СОСТОЯНИЯ ----------
 var MENU = "menu";
 var PLAYING = "playing";
 var GAME_OVER = "game_over";
-var ENDLESS_QUIT = "endless_quit";  // экран "Уже уходишь?"
-var MODE_SELECT = "mode_select";     // экран выбора режима
-var MODE_INFO = "mode_info";         // экран режима с выбором сложности
-var SOON = "soon";                   // заглушка "Скоро"
+var ENDLESS_QUIT = "endless_quit";
+var MODE_SELECT = "mode_select";
+var MODE_INFO = "mode_info";
+var SOON = "soon";
 var SETTINGS = "settings";
 var SETTINGS_BG = "settings_bg";
 var SETTINGS_SQUARE = "settings_square";
 var SETTINGS_SOUND = "settings_sound";
+var STATS = "stats";
+var ACHIEVEMENTS = "achievements";
+var CONFIRM_RESET = "confirm_reset";
 
 // ---------- РЕЖИМЫ ----------
 var MODES = [
-  { id: "timed",     name: "На время",  desc: "Успей поймать как можно больше. Время ограничено." },
-  { id: "endless",   name: "Свободный", desc: "Никаких ограничений. Играй, пока не надоест." },
-  { id: "sprint",    name: "Спринт",    desc: "Поймай все цели как можно быстрее. Время идёт вверх." },
-  { id: "accuracy",  name: "Точность",  desc: "Клик мимо — минус очко. Каждая ошибка приближает тебя к позору. Продержись как можно дольше и не промахнись." }
+  { id: "timed",    name: "На время",  desc: "Успей поймать как можно больше. Время ограничено." },
+  { id: "endless",  name: "Свободный", desc: "Никаких ограничений. Играй, пока не надоест." },
+  { id: "sprint",   name: "Спринт",    desc: "Поймай все цели как можно быстрее. Время идёт вверх." },
+  { id: "accuracy", name: "Точность",  desc: "Клик мимо — минус очко. Каждая ошибка приближает тебя к позору. Продержись как можно дольше и не промахнись." }
 ];
 
 // ---------- СЛОЖНОСТИ ----------
 var DIFFICULTIES = [
   { id: "easy",     name: "Лёгкая",   sizeStart: 80, sizeMin: 25, sizeStep: 1.2, speedMul: 0.85,
-    boostDuration: 0.4, boostMultiplier: 1.7,
-    timedSeconds: 40, sprintTarget: 5 },
+    boostDuration: 0.4, boostMultiplier: 1.7, timedSeconds: 40, sprintTarget: 5 },
   { id: "medium",   name: "Средняя",  sizeStart: 70, sizeMin: 20, sizeStep: 1.5, speedMul: 1.0,
-    boostDuration: 0.6, boostMultiplier: 2.0,
-    timedSeconds: 30, sprintTarget: 10 },
+    boostDuration: 0.6, boostMultiplier: 2.0, timedSeconds: 30, sprintTarget: 10 },
   { id: "hard",     name: "Сложная",  sizeStart: 60, sizeMin: 14, sizeStep: 2.0, speedMul: 1.2,
-    boostDuration: 0.8, boostMultiplier: 2.3,
-    timedSeconds: 20, sprintTarget: 15 },
+    boostDuration: 0.8, boostMultiplier: 2.3, timedSeconds: 20, sprintTarget: 15 },
   { id: "hardcore", name: "Хардкор",  sizeStart: 50, sizeMin: 10, sizeStep: 2.5, speedMul: 1.4,
-    boostDuration: 1.0, boostMultiplier: 2.5,
-    timedSeconds: 15, sprintTarget: 20 }
+    boostDuration: 1.0, boostMultiplier: 2.5, timedSeconds: 15, sprintTarget: 20 }
 ];
 
 var currentDifficulty = "medium";
@@ -129,7 +128,11 @@ function getDifficulty() {
   return DIFFICULTIES[1];
 }
 
-// какие настройки показывать на экране сложности — зависит от режима
+function getModeById(id) {
+  for (var i = 0; i < MODES.length; i++) if (MODES[i].id === id) return MODES[i];
+  return MODES[0];
+}
+
 function getDifficultyLabel(modeId, diff) {
   if (modeId === "timed") return diff.timedSeconds + " сек";
   if (modeId === "sprint") return diff.sprintTarget + " целей";
@@ -139,10 +142,9 @@ function getDifficultyLabel(modeId, diff) {
   return "максимальный темп";
 }
 
-// текущий выбранный режим (для экрана MODE_INFO и игры)
 var currentMode = "timed";
 
-// рекорды — по комбинации mode + diff
+// ---------- РЕКОРДЫ ----------
 function recordKey(mode, diff) { return "catchme_record_" + mode + "_" + diff; }
 function loadRecord(mode, diff) {
   try {
@@ -155,8 +157,353 @@ function saveRecord(mode, diff, value) {
   try { localStorage.setItem(recordKey(mode, diff), String(value)); } catch(e) {}
 }
 
+// ---------- СТАТИСТИКА ----------
+function todayDateStr() {
+  var d = new Date();
+  var day = d.getDate();
+  var month = d.getMonth() + 1;
+  var year = d.getFullYear();
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  return pad(day) + "." + pad(month) + "." + year;
+}
+
+var statsTotal = { games: 0, hits: 0, misses: 0, bestStreak: 0, firstGame: "" };
+var statsModes = {};
+var statsToday = { date: "", games: 0, hits: 0, bestScore: 0, bestTime: 0 };
+
+function loadStats() {
+  try {
+    var t = localStorage.getItem("catchme_stats_total");
+    if (t) statsTotal = JSON.parse(t);
+  } catch(e) {}
+
+  try {
+    var m = localStorage.getItem("catchme_stats_modes");
+    if (m) statsModes = JSON.parse(m);
+  } catch(e) {}
+
+  try {
+    var td = localStorage.getItem("catchme_stats_today");
+    if (td) statsToday = JSON.parse(td);
+  } catch(e) {}
+
+  // сброс "сегодня" в полночь
+  var today = todayDateStr();
+  if (statsToday.date !== today) {
+    statsToday = { date: today, games: 0, hits: 0, bestScore: 0, bestTime: 0 };
+    saveStats();
+  }
+}
+
+function saveStats() {
+  try { localStorage.setItem("catchme_stats_total", JSON.stringify(statsTotal)); } catch(e) {}
+  try { localStorage.setItem("catchme_stats_modes", JSON.stringify(statsModes)); } catch(e) {}
+  try { localStorage.setItem("catchme_stats_today", JSON.stringify(statsToday)); } catch(e) {}
+}
+
+function getModeStats(modeId) {
+  if (!statsModes[modeId]) {
+    statsModes[modeId] = { games: 0, hits: 0, misses: 0, bestScore: 0, bestTime: 0 };
+  }
+  return statsModes[modeId];
+}
+
+function resetStatsAll() {
+  statsTotal = { games: 0, hits: 0, misses: 0, bestStreak: 0, firstGame: "" };
+  statsModes = {};
+  statsToday = { date: todayDateStr(), games: 0, hits: 0, bestScore: 0, bestTime: 0 };
+  saveStats();
+}
+
+// Записать результаты одной игры
+// mode: id, score: итоговый счёт, hits: попаданий, misses: промахов,
+// bestStreak: лучшая серия попаданий подряд за игру,
+// elapsedTime: для спринта (секунды)
+function recordGameEnd(mode, score, hits, misses, bestStreak, elapsedTime) {
+  // тотал
+  statsTotal.games++;
+  statsTotal.hits += hits;
+  statsTotal.misses += misses;
+  if (bestStreak > statsTotal.bestStreak) statsTotal.bestStreak = bestStreak;
+  if (!statsTotal.firstGame) statsTotal.firstGame = todayDateStr();
+
+  // по режиму
+  var m = getModeStats(mode);
+  m.games++;
+  m.hits += hits;
+  m.misses += misses;
+  if (mode === "sprint") {
+    if (m.bestTime === 0 || elapsedTime < m.bestTime) m.bestTime = elapsedTime;
+  } else {
+    if (score > m.bestScore) m.bestScore = score;
+  }
+
+  // сегодня
+  var today = todayDateStr();
+  if (statsToday.date !== today) {
+    statsToday = { date: today, games: 0, hits: 0, bestScore: 0, bestTime: 0 };
+  }
+  statsToday.games++;
+  statsToday.hits += hits;
+  if (mode === "sprint") {
+    if (statsToday.bestTime === 0 || elapsedTime < statsToday.bestTime) {
+      statsToday.bestTime = elapsedTime;
+    }
+  } else {
+    if (score > statsToday.bestScore) statsToday.bestScore = score;
+  }
+
+  saveStats();
+}
+
+// ---------- ДОСТИЖЕНИЯ ----------
+var ACHIEVEMENTS_LIST = [
+  // ===== ОБЩИЕ (8) =====
+  { id: "first_game",      cat: "common", name: "Первый шаг",           desc: "Сыграть первую игру",
+    check: function(ctx) { return statsTotal.games >= 1; },
+    progress: function(ctx) { return [Math.min(statsTotal.games, 1), 1]; } },
+
+  { id: "play_10",         cat: "common", name: "Постоянство",          desc: "Сыграть 10 игр",
+    check: function(ctx) { return statsTotal.games >= 10; },
+    progress: function(ctx) { return [Math.min(statsTotal.games, 10), 10]; } },
+
+  { id: "play_50",         cat: "common", name: "Преданность",          desc: "Сыграть 50 игр",
+    check: function(ctx) { return statsTotal.games >= 50; },
+    progress: function(ctx) { return [Math.min(statsTotal.games, 50), 50]; } },
+
+  { id: "play_100",        cat: "common", name: "Преданность до конца", desc: "Сыграть 100 игр",
+    check: function(ctx) { return statsTotal.games >= 100; },
+    progress: function(ctx) { return [Math.min(statsTotal.games, 100), 100]; } },
+
+  { id: "hits_100",        cat: "common", name: "Первая сотня",         desc: "Поймать 100 квадратиков за всё время",
+    check: function(ctx) { return statsTotal.hits >= 100; },
+    progress: function(ctx) { return [Math.min(statsTotal.hits, 100), 100]; } },
+
+  { id: "hits_1000",       cat: "common", name: "Тысяча",               desc: "Поймать 1000 квадратиков за всё время",
+    check: function(ctx) { return statsTotal.hits >= 1000; },
+    progress: function(ctx) { return [Math.min(statsTotal.hits, 1000), 1000]; } },
+
+  { id: "streak_10",       cat: "common", name: "Точный глаз",          desc: "10 попаданий подряд без промаха",
+    check: function(ctx) { return statsTotal.bestStreak >= 10; },
+    progress: function(ctx) { return [Math.min(statsTotal.bestStreak, 10), 10]; } },
+
+  { id: "streak_50",       cat: "common", name: "Мастер попаданий",     desc: "50 попаданий подряд без промаха",
+    check: function(ctx) { return statsTotal.bestStreak >= 50; },
+    progress: function(ctx) { return [Math.min(statsTotal.bestStreak, 50), 50]; } },
+
+  // ===== НА ВРЕМЯ (6) =====
+  { id: "timed_5",         cat: "timed", name: "Разминка",              desc: "На время: поймать 5 за игру",
+    check: function(ctx) { return getModeStats("timed").bestScore >= 5; },
+    progress: function(ctx) { return [Math.min(getModeStats("timed").bestScore, 5), 5]; } },
+  { id: "timed_10",        cat: "timed", name: "Уверенный темп",        desc: "На время: поймать 10 за игру",
+    check: function(ctx) { return getModeStats("timed").bestScore >= 10; },
+    progress: function(ctx) { return [Math.min(getModeStats("timed").bestScore, 10), 10]; } },
+  { id: "timed_15",        cat: "timed", name: "Хороший результат",     desc: "На время: поймать 15 за игру",
+    check: function(ctx) { return getModeStats("timed").bestScore >= 15; },
+    progress: function(ctx) { return [Math.min(getModeStats("timed").bestScore, 15), 15]; } },
+  { id: "timed_20",        cat: "timed", name: "Отлично",               desc: "На время: поймать 20 за игру",
+    check: function(ctx) { return getModeStats("timed").bestScore >= 20; },
+    progress: function(ctx) { return [Math.min(getModeStats("timed").bestScore, 20), 20]; } },
+  { id: "timed_25",        cat: "timed", name: "Мастер времени",        desc: "На время: поймать 25 за игру",
+    check: function(ctx) { return getModeStats("timed").bestScore >= 25; },
+    progress: function(ctx) { return [Math.min(getModeStats("timed").bestScore, 25), 25]; } },
+  { id: "timed_35",        cat: "timed", name: "Легенда времени",       desc: "На время: поймать 35 за игру",
+    check: function(ctx) { return getModeStats("timed").bestScore >= 35; },
+    progress: function(ctx) { return [Math.min(getModeStats("timed").bestScore, 35), 35]; } },
+
+  // ===== СВОБОДНЫЙ (6) =====
+  { id: "endless_20",      cat: "endless", name: "Поймал 20",           desc: "Свободный: поймать 20 за сессию",
+    check: function(ctx) { return getModeStats("endless").bestScore >= 20; },
+    progress: function(ctx) { return [Math.min(getModeStats("endless").bestScore, 20), 20]; } },
+  { id: "endless_40",      cat: "endless", name: "Поймал 40",           desc: "Свободный: поймать 40 за сессию",
+    check: function(ctx) { return getModeStats("endless").bestScore >= 40; },
+    progress: function(ctx) { return [Math.min(getModeStats("endless").bestScore, 40), 40]; } },
+  { id: "endless_60",      cat: "endless", name: "Поймал 60",           desc: "Свободный: поймать 60 за сессию",
+    check: function(ctx) { return getModeStats("endless").bestScore >= 60; },
+    progress: function(ctx) { return [Math.min(getModeStats("endless").bestScore, 60), 60]; } },
+  { id: "endless_games_5", cat: "endless", name: "Вернулся",            desc: "Свободный: сыграть 5 раз",
+    check: function(ctx) { return getModeStats("endless").games >= 5; },
+    progress: function(ctx) { return [Math.min(getModeStats("endless").games, 5), 5]; } },
+  { id: "endless_games_20",cat: "endless", name: "Завсегдатай",         desc: "Свободный: сыграть 20 раз",
+    check: function(ctx) { return getModeStats("endless").games >= 20; },
+    progress: function(ctx) { return [Math.min(getModeStats("endless").games, 20), 20]; } },
+  { id: "endless_games_50",cat: "endless", name: "Живёт здесь",         desc: "Свободный: сыграть 50 раз",
+    check: function(ctx) { return getModeStats("endless").games >= 50; },
+    progress: function(ctx) { return [Math.min(getModeStats("endless").games, 50), 50]; } },
+
+  // ===== СПРИНТ (6) =====
+  { id: "sprint_finish",   cat: "sprint", name: "Быстрый старт",        desc: "Спринт: закончить спринт",
+    check: function(ctx) { return getModeStats("sprint").games >= 1; },
+    progress: null },
+  { id: "sprint_20",       cat: "sprint", name: "Скорость",             desc: "Спринт: закончить за 20 сек или меньше",
+    check: function(ctx) { var t = getModeStats("sprint").bestTime; return t > 0 && t <= 20; },
+    progress: function(ctx) { var t = getModeStats("sprint").bestTime; if (t <= 0) return [0, 1]; return [1, t <= 20 ? 1 : 0]; } },
+  { id: "sprint_15",       cat: "sprint", name: "Очень быстро",         desc: "Спринт: закончить за 15 сек или меньше",
+    check: function(ctx) { var t = getModeStats("sprint").bestTime; return t > 0 && t <= 15; },
+    progress: function(ctx) { var t = getModeStats("sprint").bestTime; if (t <= 0) return [0, 1]; return [1, t <= 15 ? 1 : 0]; } },
+  { id: "sprint_10",       cat: "sprint", name: "Молния",               desc: "Спринт: закончить за 10 сек или меньше",
+    check: function(ctx) { var t = getModeStats("sprint").bestTime; return t > 0 && t <= 10; },
+    progress: function(ctx) { var t = getModeStats("sprint").bestTime; if (t <= 0) return [0, 1]; return [1, t <= 10 ? 1 : 0]; } },
+  { id: "sprint_7",        cat: "sprint", name: "Сверхзвук",            desc: "Спринт: закончить за 7 сек или меньше",
+    check: function(ctx) { var t = getModeStats("sprint").bestTime; return t > 0 && t <= 7; },
+    progress: function(ctx) { var t = getModeStats("sprint").bestTime; if (t <= 0) return [0, 1]; return [1, t <= 7 ? 1 : 0]; } },
+  { id: "sprint_5",        cat: "sprint", name: "Невозможное",          desc: "Спринт: закончить за 5 сек или меньше",
+    check: function(ctx) { var t = getModeStats("sprint").bestTime; return t > 0 && t <= 5; },
+    progress: function(ctx) { var t = getModeStats("sprint").bestTime; if (t <= 0) return [0, 1]; return [1, t <= 5 ? 1 : 0]; } },
+
+  // ===== ТОЧНОСТЬ (6) =====
+  { id: "accuracy_clean",  cat: "accuracy", name: "Чисто",              desc: "Точность: закончить без промахов (счёт > 0)",
+    check: function(ctx) { return ctx.lastAccuracyClean === true; },
+    progress: null },
+  { id: "accuracy_10",     cat: "accuracy", name: "Хирург",             desc: "Точность: поймать 10 за игру",
+    check: function(ctx) { return getModeStats("accuracy").bestScore >= 10; },
+    progress: function(ctx) { return [Math.min(getModeStats("accuracy").bestScore, 10), 10]; } },
+  { id: "accuracy_20",     cat: "accuracy", name: "Снайпер",            desc: "Точность: поймать 20 за игру",
+    check: function(ctx) { return getModeStats("accuracy").bestScore >= 20; },
+    progress: function(ctx) { return [Math.min(getModeStats("accuracy").bestScore, 20), 20]; } },
+  { id: "accuracy_30",     cat: "accuracy", name: "Идеально",           desc: "Точность: поймать 30 за игру",
+    check: function(ctx) { return getModeStats("accuracy").bestScore >= 30; },
+    progress: function(ctx) { return [Math.min(getModeStats("accuracy").bestScore, 30), 30]; } },
+  { id: "accuracy_40",     cat: "accuracy", name: "Безупречный",        desc: "Точность: поймать 40 за игру",
+    check: function(ctx) { return getModeStats("accuracy").bestScore >= 40; },
+    progress: function(ctx) { return [Math.min(getModeStats("accuracy").bestScore, 40), 40]; } },
+  { id: "accuracy_games_10", cat: "accuracy", name: "Точность — серия", desc: "Точность: сыграть 10 раз",
+    check: function(ctx) { return getModeStats("accuracy").games >= 10; },
+    progress: function(ctx) { return [Math.min(getModeStats("accuracy").games, 10), 10]; } }
+];
+
+var achievementsEarned = {};
+try {
+  var ae = localStorage.getItem("catchme_achievements");
+  if (ae) achievementsEarned = JSON.parse(ae);
+} catch(e) {}
+
+function saveAchievements() {
+  try { localStorage.setItem("catchme_achievements", JSON.stringify(achievementsEarned)); } catch(e) {}
+}
+
+function resetAchievements() {
+  achievementsEarned = {};
+  saveAchievements();
+}
+
+// плашка
+var achievementQueue = [];
+var achievementToast = null;
+
+function giveAchievement(id) {
+  if (achievementsEarned[id]) return;
+  achievementsEarned[id] = Date.now();
+  saveAchievements();
+
+  // найти объект
+  for (var i = 0; i < ACHIEVEMENTS_LIST.length; i++) {
+    if (ACHIEVEMENTS_LIST[i].id === id) {
+      achievementQueue.push(ACHIEVEMENTS_LIST[i]);
+      break;
+    }
+  }
+  soundAchievement();
+}
+
+function checkAchievements(ctx) {
+  for (var i = 0; i < ACHIEVEMENTS_LIST.length; i++) {
+    var a = ACHIEVEMENTS_LIST[i];
+    if (!achievementsEarned[a.id] && a.check && a.check(ctx)) {
+      giveAchievement(a.id);
+    }
+  }
+}
+
+function popNextToastIfNeeded() {
+  if (achievementToast) return;
+  if (achievementQueue.length === 0) return;
+  var a = achievementQueue.shift();
+  achievementToast = {
+    ach: a,
+    inTime: 0,
+    holdTime: 0,
+    outTime: 0,
+    phase: "in" // "in" | "hold" | "out"
+  };
+}
+
+function updateToast(dt) {
+  popNextToastIfNeeded();
+  if (!achievementToast) return;
+  var t = achievementToast;
+  if (t.phase === "in") {
+    t.inTime += dt;
+    if (t.inTime >= 0.4) { t.phase = "hold"; t.holdTime = 0; }
+  } else if (t.phase === "hold") {
+    t.holdTime += dt;
+    if (t.holdTime >= 2.5) { t.phase = "out"; t.outTime = 0; }
+  } else if (t.phase === "out") {
+    t.outTime += dt;
+    if (t.outTime >= 0.4) { achievementToast = null; }
+  }
+}
+
+function drawToast() {
+  if (!achievementToast) return;
+  var t = achievementToast;
+  var toastW = 280, toastH = 72;
+  var targetX = W - toastW - 20;
+  var targetY = H - toastH - 20;
+
+  var x = targetX, y = targetY;
+  if (t.phase === "in") {
+    var p = t.inTime / 0.4;
+    if (p > 1) p = 1;
+    x = W + (targetX - W) * p;
+  } else if (t.phase === "out") {
+    var p2 = t.outTime / 0.4;
+    if (p2 > 1) p2 = 1;
+    x = targetX + (W - targetX) * p2;
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetX = 3;
+  ctx.shadowOffsetY = 4;
+
+  ctx.fillStyle = "#2a2a3a";
+  ctx.fillRect(x, y, toastW, toastH);
+  ctx.restore();
+
+  ctx.strokeStyle = "#f0c050";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, toastW, toastH);
+
+  ctx.fillStyle = "#f0c050";
+  ctx.font = "bold 26px " + FONT_FAMILY;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText("🏆", x + 14, y + toastH / 2);
+
+  ctx.fillStyle = "#a0a0b0";
+  ctx.font = "10px " + FONT_FAMILY;
+  ctx.textBaseline = "top";
+  ctx.fillText("ДОСТИЖЕНИЕ", x + 54, y + 12);
+
+  ctx.fillStyle = "#f0f0f0";
+  ctx.font = "bold 14px " + FONT_FAMILY;
+  ctx.fillText(t.ach.name, x + 54, y + 26);
+
+  ctx.fillStyle = "#a0a0b0";
+  ctx.font = "11px " + FONT_FAMILY;
+  ctx.fillText(t.ach.desc, x + 54, y + 46);
+}
+
+function soundAchievement() {
+  playTone(880, 0.12, "square", 0.7, 1760);
+  setTimeout(function() {
+    playTone(1318, 0.18, "square", 0.7);
+  }, 90);
+}
+
 // ---------- СООБЩЕНИЯ ----------
-// сообщения для режима "На время" и "Точность" - по счёту
 var MESSAGE_BUCKETS_SCORE = [
   { minScore: -Infinity, maxScore: -10, messages: [
     "Это уже не игра. Это катастрофа.",
@@ -215,7 +562,6 @@ var MESSAGE_BUCKETS_SCORE = [
   ]}
 ];
 
-// сообщения для "Спринт" - по времени (меньше = лучше)
 var MESSAGE_BUCKETS_SPRINT = [
   { minTime: 0, maxTime: 8, messages: [
     "Молниеносно. Он не успел ничего понять.",
@@ -247,28 +593,12 @@ var MESSAGE_BUCKETS_SPRINT = [
   ]}
 ];
 
-// подбадривающие сообщения для "Свободного"
 var MESSAGE_ENDLESS = [
-  "Неплохо.",
-  "Приходи ещё.",
-  "Ты в форме.",
-  "Ещё разок?",
-  "Спасибо за игру.",
-  "Ты держишься.",
-  "Продолжай в том же духе.",
-  "Хорошая серия.",
-  "Он тебя запомнит.",
-  "Ещё увидимся.",
-  "Ты справляешься.",
-  "Отличная попытка.",
-  "Уже лучше, чем в прошлый раз.",
-  "Он тебя боится. Правда.",
-  "Ещё чуть-чуть — и рекорд.",
-  "До встречи.",
-  "Ты не сдаёшься. Это главное.",
-  "Красиво играешь.",
-  "Приходи ещё.",
-  "Спасибо, что зашёл."
+  "Неплохо.", "Приходи ещё.", "Ты в форме.", "Ещё разок?", "Спасибо за игру.",
+  "Ты держишься.", "Продолжай в том же духе.", "Хорошая серия.", "Он тебя запомнит.",
+  "Ещё увидимся.", "Ты справляешься.", "Отличная попытка.", "Уже лучше, чем в прошлый раз.",
+  "Он тебя боится. Правда.", "Ещё чуть-чуть — и рекорд.", "До встречи.",
+  "Ты не сдаёшься. Это главное.", "Красиво играешь.", "Приходи ещё.", "Спасибо, что зашёл."
 ];
 
 function pickScoreMessage(score) {
@@ -280,7 +610,6 @@ function pickScoreMessage(score) {
   }
   return "Конец.";
 }
-
 function pickSprintMessage(time) {
   for (var i = 0; i < MESSAGE_BUCKETS_SPRINT.length; i++) {
     var b = MESSAGE_BUCKETS_SPRINT[i];
@@ -290,7 +619,6 @@ function pickSprintMessage(time) {
   }
   return "Конец.";
 }
-
 function pickEndlessMessage() {
   return MESSAGE_ENDLESS[Math.floor(Math.random() * MESSAGE_ENDLESS.length)];
 }
@@ -309,19 +637,15 @@ var TELEPORT_RADIUS = 70;
 var TELEPORT_COOLDOWN = 2.5;
 var TELEPORT_MIN_DIST = 200;
 var BOOST_INTERVAL = 2.0;
-
 var exitButtonZone = null;
 
 var POP_DURATION_IN = 0.08;
 var POP_DURATION_OUT = 0.12;
 var POP_SCALE_MAX = 1.5;
 var SPAWN_DURATION = 0.15;
-
 var MISS_BLINK_DURATION = 0.4;
 var MISS_FADE_DURATION = 0.3;
-
 var GAMEOVER_FADE_DURATION = 0.5;
-
 // ---------- ЗВУК ----------
 var soundEnabled = true;
 try {
@@ -400,12 +724,9 @@ function soundTeleport() { playTone(300, 0.12, "sine", 0.5, 1200); }
 function soundBoost()    { playTone(1100, 0.06, "triangle", 0.5); }
 function soundFinish()   { playTone(880, 0.15, "square", 0.9); playTone(1318, 0.25, "square", 0.9); }
 
-// ============================================================
-// МУЗЫКА
-// ============================================================
+// ---------- МУЗЫКА ----------
 var MELODY_MENU = [523.25, 587.33, 659.25, 783.99, 659.25, 587.33, 523.25, 392.00];
 var BASS_MENU = [130.81, 130.81, 164.81, 164.81];
-
 var MELODY_GAME1 = [
   523.25, 587.33, 659.25, 783.99, 659.25, 587.33, 523.25, 587.33,
   659.25, 783.99, 880.00, 1046.50, 880.00, 783.99, 659.25, 587.33,
@@ -416,7 +737,6 @@ var BASS_GAME1 = [
   130.81, 130.81, 164.81, 164.81, 174.61, 174.61, 130.81, 130.81,
   130.81, 130.81, 196.00, 196.00, 174.61, 174.61, 130.81, 130.81
 ];
-
 var MELODY_GAME2 = [
   659.25, 783.99, 880.00, 1046.50, 880.00, 783.99, 880.00, 1046.50,
   1174.66, 1046.50, 880.00, 783.99, 880.00, 1046.50, 1174.66, 1318.51,
@@ -427,7 +747,6 @@ var BASS_GAME2 = [
   164.81, 164.81, 196.00, 196.00, 220.00, 220.00, 196.00, 196.00,
   164.81, 164.81, 130.81, 130.81, 146.83, 146.83, 164.81, 164.81
 ];
-
 var MELODY_GAME3 = [
   523.25, 659.25, 523.25, 783.99, 659.25, 523.25, 587.33, 659.25,
   783.99, 880.00, 783.99, 1046.50, 880.00, 783.99, 880.00, 1046.50,
@@ -438,7 +757,6 @@ var BASS_GAME3 = [
   130.81, 130.81, 174.61, 174.61, 196.00, 196.00, 220.00, 220.00,
   174.61, 174.61, 164.81, 164.81, 130.81, 130.81, 146.83, 146.83
 ];
-
 var MELODY_GAMEOVER = [440.00, 415.30, 392.00, 349.23, 329.63, 293.66, 261.63, 220.00];
 var BASS_GAMEOVER = [110.00, 110.00, 87.31, 87.31];
 
@@ -568,8 +886,8 @@ function ensureMusicPlaying() {
   if (!audioReady) initAudio();
   if (audioReady) startMusic();
 }
-// ============================================================
 
+// ---------- ЦВЕТА ----------
 function darkenColor(hex, factor) {
   var rgb = hexToRgb(hex);
   if (!rgb) return hex;
@@ -579,7 +897,6 @@ function darkenColor(hex, factor) {
   return rgbToHex(r, g, b);
 }
 
-// ---------- ХРАНИЛИЩА ----------
 var bgColor = null;
 try { bgColor = localStorage.getItem("catchme_bgcolor") || null; } catch(e) {}
 var squareColor = null;
@@ -694,14 +1011,10 @@ function applySqFromBlob(blob) {
   img.src = sqImageURL;
 }
 function initBg() {
-  loadFromStore("bg").then(function(blob) {
-    if (blob) applyBgFromBlob(blob);
-  }).catch(function(e){});
+  loadFromStore("bg").then(function(blob) { if (blob) applyBgFromBlob(blob); }).catch(function(e){});
 }
 function initSqImage() {
-  loadFromStore("square").then(function(blob) {
-    if (blob) applySqFromBlob(blob);
-  }).catch(function(e){});
+  loadFromStore("square").then(function(blob) { if (blob) applySqFromBlob(blob); }).catch(function(e){});
 }
 
 // ---------- ФАЙЛЫ ----------
@@ -784,9 +1097,7 @@ function applyHexInput() {
   hexTarget = "bg";
   hideHexInput();
 }
-hexInput.addEventListener("blur", function() {
-  if (hexInputVisible) applyHexInput();
-});
+hexInput.addEventListener("blur", function() { if (hexInputVisible) applyHexInput(); });
 hexInput.addEventListener("keydown", function(e) {
   if (e.key === "Enter") { e.preventDefault(); applyHexInput(); }
 });
@@ -828,8 +1139,6 @@ function spawnParticles(x, y, baseSize, color, useImage) {
     var angle = Math.random() * Math.PI * 2;
     var speed = 100 + Math.random() * 200;
     var size = 3 + Math.random() * 4;
-    var srcX = Math.random();
-    var srcY = Math.random();
     particles.push({
       x: x, y: y,
       vx: Math.cos(angle) * speed,
@@ -837,13 +1146,12 @@ function spawnParticles(x, y, baseSize, color, useImage) {
       life: 0.6, maxLife: 0.6,
       size: size, color: color,
       useImage: useImage,
-      srcX: srcX, srcY: srcY,
+      srcX: Math.random(), srcY: Math.random(),
       rotation: Math.random() * Math.PI * 2,
       rotSpeed: (Math.random() - 0.5) * 6
     });
   }
 }
-
 function updateParticles(dt) {
   for (var i = particles.length - 1; i >= 0; i--) {
     var p = particles[i];
@@ -854,7 +1162,6 @@ function updateParticles(dt) {
     if (p.life <= 0) particles.splice(i, 1);
   }
 }
-
 function drawParticles() {
   for (var i = 0; i < particles.length; i++) {
     var p = particles[i];
@@ -904,12 +1211,8 @@ function Square() {
   this.removed = false;
 }
 
-Square.prototype.startPop = function() {
-  this.popPhase = "in"; this.popTime = 0; this.dead = true;
-};
-Square.prototype.startMiss = function() {
-  this.missPhase = "blink"; this.missTime = 0; this.dead = true;
-};
+Square.prototype.startPop = function() { this.popPhase = "in"; this.popTime = 0; this.dead = true; };
+Square.prototype.startMiss = function() { this.missPhase = "blink"; this.missTime = 0; this.dead = true; };
 
 Square.prototype.update = function(mx, my, score, dt) {
   if (!dt) dt = 1/60;
@@ -1033,7 +1336,6 @@ Square.prototype.getCurrentSize = function() {
   }
   return Math.max(0, s);
 };
-
 Square.prototype.getAlpha = function() {
   if (this.missPhase === "fade") {
     var t = this.missTime / MISS_FADE_DURATION;
@@ -1041,22 +1343,18 @@ Square.prototype.getAlpha = function() {
   }
   return 1;
 };
-
 Square.prototype.getRedFlash = function() {
   if (this.missPhase === "blink") {
     var t = this.missTime / MISS_BLINK_DURATION;
-    var cycles = 2;
-    var val = Math.sin(t * Math.PI * 2 * cycles);
+    var val = Math.sin(t * Math.PI * 2 * 2);
     return Math.max(0, val) * 0.15;
   }
   return 0;
 };
-
 Square.prototype.collides = function(mx, my) {
   var s = this.getCurrentSize();
   return Math.abs(mx - this.x) < s/2 && Math.abs(my - this.y) < s/2;
 };
-
 Square.prototype.draw = function() {
   var size = this.getCurrentSize();
   if (size <= 0) return;
@@ -1115,8 +1413,7 @@ function spawnPopup(x, y) { popups.push({ x: x, y: y, life: 0.8, maxLife: 0.8 })
 function updatePopups(dt) {
   for (var i = popups.length - 1; i >= 0; i--) {
     var p = popups[i];
-    p.y -= 60 * dt;
-    p.life -= dt;
+    p.y -= 60 * dt; p.life -= dt;
     if (p.life <= 0) popups.splice(i, 1);
   }
 }
@@ -1149,6 +1446,20 @@ var game = {
   gameOverTime: 0,
   gameOverMessage: "",
   sprintDone: false,
+  currentStreak: 0,
+  bestStreakThisGame: 0,
+  hitsThisGame: 0,
+  missesThisGame: 0,
+  lastAccuracyClean: false,
+  soonTitle: "",
+  confirmTitle: "",
+  confirmAction: "",
+  achTab: "common",
+  achScroll: 0,
+  achMaxScroll: 0,
+  achTouchY: 0,
+  achTouchTime: 0,
+  achDragging: false,
 
   reset: function() {
     var d = getDifficulty();
@@ -1163,6 +1474,11 @@ var game = {
     this.gameOverTime = 0;
     this.gameOverMessage = "";
     this.sprintDone = false;
+    this.currentStreak = 0;
+    this.bestStreakThisGame = 0;
+    this.hitsThisGame = 0;
+    this.missesThisGame = 0;
+    this.lastAccuracyClean = false;
   },
 
   start: function(mode) {
@@ -1177,7 +1493,16 @@ var game = {
     setMusicMode("game");
   },
 
-  // обычный конец игры (для "На время" и "Точность")
+  // общая функция завершения (после игры)
+  finalizeStats: function(cleanAccuracy) {
+    var elapsed = this.elapsedTime;
+    this.lastAccuracyClean = cleanAccuracy;
+    recordGameEnd(this.mode, this.score, this.hitsThisGame, this.missesThisGame,
+                  this.bestStreakThisGame, elapsed);
+    var ctxa = { lastAccuracyClean: this.lastAccuracyClean };
+    checkAchievements(ctxa);
+  },
+
   end: function() {
     this.state = GAME_OVER;
     this.gameOverTime = 0;
@@ -1190,59 +1515,52 @@ var game = {
     }
 
     var rec = loadRecord(this.mode, d.id);
-    if (this.mode === "sprint") {
-      // время меньше = лучше
-    } else {
-      if (this.score > rec) {
-        saveRecord(this.mode, d.id, this.score);
-      }
-    }
+    if (this.score > rec) saveRecord(this.mode, d.id, this.score);
     this.record = loadRecord(this.mode, d.id);
+
+    var clean = (this.mode === "accuracy" && this.missesThisGame === 0 && this.score > 0);
+    this.finalizeStats(clean);
 
     soundGameOver();
     setMusicMode("gameover");
   },
 
-  // финиш спринта
   finishSprint: function() {
     this.state = GAME_OVER;
     this.gameOverTime = 0;
     this.gameOverMessage = pickSprintMessage(this.elapsedTime);
     var d = getDifficulty();
     var rec = loadRecord("sprint", d.id);
-    if (rec === 0 || this.elapsedTime < rec) {
-      saveRecord("sprint", d.id, this.elapsedTime);
-    }
+    var recMs = Math.round(this.elapsedTime * 1000);
+    if (rec === 0 || recMs < rec) saveRecord("sprint", d.id, recMs);
     this.record = loadRecord("sprint", d.id);
+    this.finalizeStats(false);
     soundFinish();
     setMusicMode("gameover");
   },
 
-  // выход из свободного — экран "уже уходишь?"
   quitEndless: function() {
     this.state = ENDLESS_QUIT;
     var d = getDifficulty();
     var rec = loadRecord("endless", d.id);
-    if (this.score > rec) {
-      saveRecord("endless", d.id, this.score);
-    }
+    if (this.score > rec) saveRecord("endless", d.id, this.score);
     this.record = loadRecord("endless", d.id);
     this.gameOverMessage = pickEndlessMessage();
+    this.finalizeStats(false);
     soundGameOver();
     setMusicMode("gameover");
   },
 
-  // выход из точности — экран окончания
   quitAccuracy: function() {
     this.state = GAME_OVER;
     this.gameOverTime = 0;
     var d = getDifficulty();
     this.gameOverMessage = pickScoreMessage(this.score);
     var rec = loadRecord("accuracy", d.id);
-    if (this.score > rec) {
-      saveRecord("accuracy", d.id, this.score);
-    }
+    if (this.score > rec) saveRecord("accuracy", d.id, this.score);
     this.record = loadRecord("accuracy", d.id);
+    var clean = (this.missesThisGame === 0 && this.score > 0);
+    this.finalizeStats(clean);
     soundGameOver();
     setMusicMode("gameover");
   },
@@ -1250,6 +1568,7 @@ var game = {
   update: function(dt) {
     updatePopups(dt);
     updateParticles(dt);
+    updateToast(dt);
 
     if (this.state === GAME_OVER || this.state === ENDLESS_QUIT) {
       if (this.gameOverTime < GAMEOVER_FADE_DURATION) {
@@ -1267,7 +1586,6 @@ var game = {
 
     var mx = this.mouse.x, my = this.mouse.y;
     this.square.update(mx, my, this.score, dt);
-
     if (this.square.removed) this.square = new Square();
 
     if (this.square.behavior === "multiply" && this.fakeSquares.length < 2) {
@@ -1291,15 +1609,16 @@ var game = {
       if (this.timeLeft <= 0) { this.timeLeft = 0; this.end(); }
     } else if (this.mode === "sprint") {
       this.elapsedTime += dt;
-      var d = getDifficulty();
-      if (this.score >= d.sprintTarget && !this.sprintDone) {
+      var dd = getDifficulty();
+      if (this.score >= dd.sprintTarget && !this.sprintDone) {
         this.sprintDone = true;
         this.finishSprint();
       }
+    } else if (this.mode === "endless" || this.mode === "accuracy") {
+      this.elapsedTime += dt;
     }
-  }, 
-  
-     click: function(px, py) {
+  }
+    ,click: function(px, py) {
     unlockAudio();
 
     if (this.state === MENU) {
@@ -1309,8 +1628,8 @@ var game = {
           soundClick();
           if (b.id === "select_mode") this.state = MODE_SELECT;
           if (b.id === "settings") this.state = SETTINGS;
-          if (b.id === "achievements") { this.state = SOON; this.soonTitle = "ДОСТИЖЕНИЯ"; }
-          if (b.id === "stats") { this.state = SOON; this.soonTitle = "СТАТИСТИКА"; }
+          if (b.id === "achievements") { this.state = ACHIEVEMENTS; this.achTab = "common"; this.achScroll = 0; }
+          if (b.id === "stats") this.state = STATS;
           return;
         }
       }
@@ -1324,6 +1643,65 @@ var game = {
           soundClick();
           if (sb0.id === "back") this.state = MENU;
           return;
+        }
+      }
+      return;
+    }
+
+    if (this.state === CONFIRM_RESET) {
+      for (var ci = 0; ci < this.buttons.length; ci++) {
+        var cb = this.buttons[ci];
+        if (px >= cb.x && px <= cb.x + cb.w && py >= cb.y && py <= cb.y + cb.h) {
+          soundClick();
+          if (cb.id === "yes") {
+            if (this.confirmAction === "stats") resetStatsAll();
+            if (this.confirmAction === "achievements") resetAchievements();
+            this.state = (this.confirmAction === "stats") ? STATS : ACHIEVEMENTS;
+            return;
+          }
+          if (cb.id === "no") {
+            this.state = (this.confirmAction === "stats") ? STATS : ACHIEVEMENTS;
+            return;
+          }
+        }
+      }
+      return;
+    }
+
+    if (this.state === STATS) {
+      for (var sti = 0; sti < this.buttons.length; sti++) {
+        var stb = this.buttons[sti];
+        if (px >= stb.x && px <= stb.x + stb.w && py >= stb.y && py <= stb.y + stb.h) {
+          soundClick();
+          if (stb.id === "back") { this.state = MENU; return; }
+          if (stb.id === "reset_stats") {
+            this.confirmAction = "stats";
+            this.confirmTitle = "СБРОСИТЬ СТАТИСТИКУ?";
+            this.state = CONFIRM_RESET;
+            return;
+          }
+        }
+      }
+      return;
+    }
+
+    if (this.state === ACHIEVEMENTS) {
+      for (var ai = 0; ai < this.buttons.length; ai++) {
+        var ab = this.buttons[ai];
+        if (px >= ab.x && px <= ab.x + ab.w && py >= ab.y && py <= ab.y + ab.h) {
+          soundClick();
+          if (ab.id === "back") { this.state = MENU; return; }
+          if (ab.id === "reset_ach") {
+            this.confirmAction = "achievements";
+            this.confirmTitle = "СБРОСИТЬ ДОСТИЖЕНИЯ?";
+            this.state = CONFIRM_RESET;
+            return;
+          }
+          if (ab.id.indexOf("tab_") === 0) {
+            this.achTab = ab.id.substring(4);
+            this.achScroll = 0;
+            return;
+          }
         }
       }
       return;
@@ -1431,27 +1809,28 @@ var game = {
         var eb = window.__exitButton;
         if (px >= eb.x && px <= eb.x + eb.w && py >= eb.y && py <= eb.y + eb.h) {
           soundClick();
-          if (this.mode === "endless") {
-            this.quitEndless();
-          } else if (this.mode === "accuracy") {
-            this.quitAccuracy();
-          } else if (this.mode === "sprint") {
-            // в спринте кнопка ✕ — просто выход без экрана
-            this.state = MENU;
-            setMusicMode("menu");
-          } else {
-            this.state = MENU;
-            setMusicMode("menu");
-          }
+          if (this.mode === "endless") this.quitEndless();
+          else if (this.mode === "accuracy") this.quitAccuracy();
+          else if (this.mode === "sprint") { this.state = MENU; setMusicMode("menu"); }
+          else { this.state = MENU; setMusicMode("menu"); }
           return;
         }
       }
 
-      // попал в настоящий
       if (!this.square.dead && this.square.collides(px, py)) {
         this.score++;
+        this.hitsThisGame++;
+        this.currentStreak++;
+        if (this.currentStreak > this.bestStreakThisGame) this.bestStreakThisGame = this.currentStreak;
         spawnPopup(px, py);
         soundHit(this.score);
+
+        // проверка моментальных достижений (серия)
+        if (statsTotal.bestStreak < this.bestStreakThisGame) {
+          statsTotal.bestStreak = this.bestStreakThisGame;
+          saveStats();
+        }
+        checkAchievements({ lastAccuracyClean: false });
 
         var old = this.square;
         old.startPop();
@@ -1462,11 +1841,9 @@ var game = {
           newX = Math.random() * (W - 100) + 50;
           newY = Math.random() * (H - 100) + 50;
           attempts++;
-        } while (
-          attempts < 20 &&
+        } while (attempts < 20 &&
           (Math.sqrt((newX-px)*(newX-px)+(newY-py)*(newY-py)) < 150 ||
-           overlapsExitZone(newX, newY, getDifficulty().sizeStart))
-        );
+           overlapsExitZone(newX, newY, getDifficulty().sizeStart)));
         this.square = new Square();
         this.square.x = newX;
         this.square.y = newY;
@@ -1481,8 +1858,8 @@ var game = {
         this.fakeSquares = [];
 
         if (this.mode === "sprint") {
-          var d = getDifficulty();
-          if (this.score >= d.sprintTarget && !this.sprintDone) {
+          var dds = getDifficulty();
+          if (this.score >= dds.sprintTarget && !this.sprintDone) {
             this.sprintDone = true;
             this.finishSprint();
           }
@@ -1490,7 +1867,6 @@ var game = {
         return;
       }
 
-      // клик по ложному
       for (var fi2 = this.fakeSquares.length - 1; fi2 >= 0; fi2--) {
         var fsq = this.fakeSquares[fi2];
         if (!fsq.dead && fsq.collides(px, py)) {
@@ -1498,17 +1874,16 @@ var game = {
           fsq.startMiss();
           this.deadSquares.push(fsq);
           this.fakeSquares.splice(fi2, 1);
-
           if (this.mode === "accuracy") {
             this.score--;
+            this.missesThisGame++;
+            this.currentStreak = 0;
           }
           return;
         }
       }
 
-      // клик по пустому месту — в точности минус
       if (this.mode === "accuracy") {
-        // проверяем, не попал ли клик в мёртвые (летящие) квадратики
         var hitDead = false;
         for (var di = 0; di < this.deadSquares.length; di++) {
           if (this.deadSquares[di].collides(px, py)) { hitDead = true; break; }
@@ -1516,9 +1891,10 @@ var game = {
         if (!hitDead) {
           soundMissClick();
           this.score--;
+          this.missesThisGame++;
+          this.currentStreak = 0;
         }
       }
-
       return;
     }
 
@@ -1529,10 +1905,7 @@ var game = {
         if (px >= b2.x && px <= b2.x + b2.w && py >= b2.y && py <= b2.y + b2.h) {
           soundClick();
           if (b2.id === "again") this.start(this.mode);
-          if (b2.id === "menu") {
-            this.state = MENU;
-            setMusicMode("menu");
-          }
+          if (b2.id === "menu") { this.state = MENU; setMusicMode("menu"); }
           return;
         }
       }
@@ -1545,16 +1918,8 @@ var game = {
         var eb2 = this.buttons[ek];
         if (px >= eb2.x && px <= eb2.x + eb2.w && py >= eb2.y && py <= eb2.y + eb2.h) {
           soundClick();
-          if (eb2.id === "continue") {
-            this.state = PLAYING;
-            setMusicMode("game");
-            return;
-          }
-          if (eb2.id === "exit") {
-            this.state = MENU;
-            setMusicMode("menu");
-            return;
-          }
+          if (eb2.id === "continue") { this.state = PLAYING; setMusicMode("game"); return; }
+          if (eb2.id === "exit") { this.state = MENU; setMusicMode("menu"); return; }
         }
       }
       return;
@@ -1566,11 +1931,8 @@ var game = {
       var imgRatio = bgImage.width / bgImage.height;
       var screenRatio = W / H;
       var dw, dh, dx, dy;
-      if (imgRatio > screenRatio) {
-        dh = H; dw = H * imgRatio; dx = (W - dw) / 2; dy = 0;
-      } else {
-        dw = W; dh = W / imgRatio; dx = 0; dy = (H - dh) / 2;
-      }
+      if (imgRatio > screenRatio) { dh = H; dw = H * imgRatio; dx = (W - dw) / 2; dy = 0; }
+      else { dw = W; dh = W / imgRatio; dx = 0; dy = (H - dh) / 2; }
       ctx.drawImage(bgImage, dx, dy, dw, dh);
       ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
       ctx.fillRect(0, 0, W, H);
@@ -1582,9 +1944,10 @@ var game = {
       ctx.fillRect(0, 0, W, H);
     }
 
-    if (this.state === GAME_OVER || this.state === ENDLESS_QUIT) {
+    if (this.state === GAME_OVER || this.state === ENDLESS_QUIT || this.state === CONFIRM_RESET) {
       var progress = Math.min(1, this.gameOverTime / GAMEOVER_FADE_DURATION);
-      ctx.fillStyle = "rgba(0, 0, 0, " + (0.25 * progress) + ")";
+      var dim = (this.state === CONFIRM_RESET) ? 1 : progress;
+      ctx.fillStyle = "rgba(0, 0, 0, " + (0.45 * dim) + ")";
       ctx.fillRect(0, 0, W, H);
     }
 
@@ -1599,6 +1962,12 @@ var game = {
     else if (this.state === SETTINGS_BG) this.drawSettingsBg();
     else if (this.state === SETTINGS_SQUARE) this.drawSettingsSquare();
     else if (this.state === SETTINGS_SOUND) this.drawSettingsSound();
+    else if (this.state === STATS) this.drawStats();
+    else if (this.state === ACHIEVEMENTS) this.drawAchievements();
+    else if (this.state === CONFIRM_RESET) this.drawConfirmReset();
+
+    // Плашка достижения — рисуется всегда, поверх всего
+    drawToast();
   },
 
   drawMenu: function() {
@@ -1687,11 +2056,7 @@ var game = {
     hideFileLabel();
     hideHexInput();
 
-    var mode = null;
-    for (var i = 0; i < MODES.length; i++) {
-      if (MODES[i].id === currentMode) { mode = MODES[i]; break; }
-    }
-    if (!mode) mode = MODES[0];
+    var mode = getModeById(currentMode);
 
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 38px " + FONT_FAMILY;
@@ -1699,7 +2064,6 @@ var game = {
     ctx.textBaseline = "middle";
     ctx.fillText(mode.name.toUpperCase(), W / 2, H * 0.07);
 
-    // описание — с переносами
     ctx.font = "16px " + FONT_FAMILY;
     ctx.fillStyle = "#c0c0d0";
     var desc = mode.desc;
@@ -1709,12 +2073,8 @@ var game = {
     var lines = [];
     for (var wi = 0; wi < words.length; wi++) {
       var test = line + (line ? " " : "") + words[wi];
-      if (ctx.measureText(test).width > maxWidth && line) {
-        lines.push(line);
-        line = words[wi];
-      } else {
-        line = test;
-      }
+      if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = words[wi]; }
+      else { line = test; }
     }
     if (line) lines.push(line);
 
@@ -1723,13 +2083,11 @@ var game = {
       ctx.fillText(lines[li], W / 2, descY + li * 22);
     }
 
-    // "Выберите сложность:"
     var labelY = descY + lines.length * 22 + 20;
     ctx.fillStyle = "#a0a0b0";
     ctx.font = "16px " + FONT_FAMILY;
     ctx.fillText("Выберите сложность:", W / 2, labelY);
 
-    // 4 кнопки сложности
     var bw = Math.min(340, W - 60);
     var bx = (W - bw) / 2;
     var startY = labelY + 25;
@@ -1741,14 +2099,12 @@ var game = {
       var diff = DIFFICULTIES[d];
       var by = startY + d * (btnH + gap);
       var label = diff.name + " — " + getDifficultyLabel(currentMode, diff);
-      var isActive = (diff.id === currentDifficulty);
-      if (isActive) label += " ✓";
+      if (diff.id === currentDifficulty) label += " ✓";
       var btn = { x: bx, y: by, w: bw, h: btnH, text: label, id: "diff_" + diff.id };
       this.buttons.push(btn);
       drawButtons([btn]);
     }
 
-    // кнопка "Назад" — МЕНЬШЕ, как просили (45px вместо 55)
     var backY = startY + DIFFICULTIES.length * (btnH + gap) + 5;
     if (backY + 45 > H - 15) backY = H - 45 - 15;
     var smallW = Math.min(200, bw - 40);
@@ -1884,12 +2240,9 @@ var game = {
     var btnX = (W - btnW) / 2;
     var btnY = hueY + hueH + 24;
 
-    var bHex = { x: btnX, y: btnY, w: btnW, h: 50,
-                 text: "Ввести HEX: " + (bgColor || "#000000"), id: "hex" };
-    var bUp = { x: btnX, y: btnY + 62, w: btnW, h: 55,
-                text: "Загрузить фото", id: "upload" };
-    var bBack = { x: btnX, y: btnY + 127, w: btnW, h: 55,
-                  text: "Назад", id: "back" };
+    var bHex = { x: btnX, y: btnY, w: btnW, h: 50, text: "Ввести HEX: " + (bgColor || "#000000"), id: "hex" };
+    var bUp = { x: btnX, y: btnY + 62, w: btnW, h: 55, text: "Загрузить фото", id: "upload" };
+    var bBack = { x: btnX, y: btnY + 127, w: btnW, h: 55, text: "Назад", id: "back" };
 
     this.buttons = [bHex, bUp, bBack];
     drawButtons(this.buttons);
@@ -2022,12 +2375,9 @@ var game = {
     var sbtnX = (W - sbtnW) / 2;
     var sbtnY = shueY + shueH + 18;
 
-    var sbHex = { x: sbtnX, y: sbtnY, w: sbtnW, h: 50,
-                  text: "Ввести HEX: " + (squareColor || "#ff5050"), id: "hex" };
-    var sbUp = { x: sbtnX, y: sbtnY + 62, w: sbtnW, h: 55,
-                 text: "Загрузить фото", id: "upload" };
-    var sbBack = { x: sbtnX, y: sbtnY + 127, w: sbtnW, h: 55,
-                   text: "Назад", id: "back" };
+    var sbHex = { x: sbtnX, y: sbtnY, w: sbtnW, h: 50, text: "Ввести HEX: " + (squareColor || "#ff5050"), id: "hex" };
+    var sbUp = { x: sbtnX, y: sbtnY + 62, w: sbtnW, h: 55, text: "Загрузить фото", id: "upload" };
+    var sbBack = { x: sbtnX, y: sbtnY + 127, w: sbtnW, h: 55, text: "Назад", id: "back" };
 
     this.buttons = [sbHex, sbUp, sbBack];
     drawButtons(this.buttons);
@@ -2049,11 +2399,8 @@ var game = {
     var bw = Math.min(320, W - 60);
     var bx = (W - bw) / 2;
 
-    var bToggle = {
-      x: bx, y: H * 0.20, w: bw, h: 60,
-      text: soundEnabled ? "Звук: ВКЛ" : "Звук: ВЫКЛ",
-      id: "toggle"
-    };
+    var bToggle = { x: bx, y: H * 0.20, w: bw, h: 60,
+      text: soundEnabled ? "Звук: ВКЛ" : "Звук: ВЫКЛ", id: "toggle" };
     drawButtons([bToggle]);
 
     var trackH = 10;
@@ -2083,7 +2430,6 @@ var game = {
     window.__fxBar = { x: bx, y: barY, w: barW, h: trackH };
 
     var mbarY = H * 0.62;
-
     ctx.fillStyle = "#c0c0d0";
     ctx.font = "18px " + FONT_FAMILY;
     ctx.textBaseline = "bottom";
@@ -2111,6 +2457,287 @@ var game = {
     drawButtons(this.buttons);
   },
 
+  drawStats: function() {
+    exitButtonZone = null;
+    this.buttons = [];
+    hideFileLabel();
+    hideHexInput();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 34px " + FONT_FAMILY;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("СТАТИСТИКА", W / 2, H * 0.05);
+
+    var leftX = W * 0.10;
+    var y = H * 0.13;
+    var lineH = 20;
+
+    ctx.textAlign = "left";
+    ctx.font = "bold 16px " + FONT_FAMILY;
+    ctx.fillStyle = "#f0c050";
+    ctx.fillText("ОБЩЕЕ", leftX, y);
+    y += lineH + 4;
+
+    ctx.font = "14px " + FONT_FAMILY;
+    ctx.fillStyle = "#f0f0f0";
+    ctx.fillText("Игр сыграно: " + statsTotal.games, leftX, y); y += lineH;
+    ctx.fillText("Попаданий: " + statsTotal.hits, leftX, y); y += lineH;
+    ctx.fillText("Промахов: " + statsTotal.misses, leftX, y); y += lineH;
+    ctx.fillText("Лучшая серия: " + statsTotal.bestStreak, leftX, y); y += lineH;
+    if (statsTotal.firstGame) {
+      ctx.fillText("Первая игра: " + statsTotal.firstGame, leftX, y); y += lineH;
+    }
+    y += 10;
+
+    ctx.font = "bold 16px " + FONT_FAMILY;
+    ctx.fillStyle = "#f0c050";
+    ctx.fillText("СЕГОДНЯ (" + statsToday.date + ")", leftX, y);
+    y += lineH + 4;
+
+    ctx.font = "14px " + FONT_FAMILY;
+    ctx.fillStyle = "#f0f0f0";
+    ctx.fillText("Игр: " + statsToday.games, leftX, y); y += lineH;
+    ctx.fillText("Попаданий: " + statsToday.hits, leftX, y); y += lineH;
+    ctx.fillText("Лучший счёт: " + statsToday.bestScore, leftX, y); y += lineH;
+    if (statsToday.bestTime > 0) {
+      ctx.fillText("Лучшее время спринта: " + statsToday.bestTime.toFixed(1) + " сек", leftX, y); y += lineH;
+    }
+    y += 10;
+
+    ctx.font = "bold 16px " + FONT_FAMILY;
+    ctx.fillStyle = "#f0c050";
+    ctx.fillText("ПО РЕЖИМАМ", leftX, y);
+    y += lineH + 4;
+
+    ctx.font = "13px " + FONT_FAMILY;
+    ctx.fillStyle = "#f0f0f0";
+    for (var mi = 0; mi < MODES.length; mi++) {
+      var m = MODES[mi];
+      var ms = getModeStats(m.id);
+      var line = m.name + ": игр " + ms.games + ", попаданий " + ms.hits;
+      if (m.id === "sprint") {
+        line += ", лучшее " + (ms.bestTime > 0 ? ms.bestTime.toFixed(1) + " сек" : "—");
+      } else {
+        line += ", рекорд " + ms.bestScore;
+      }
+      ctx.fillText(line, leftX, y);
+      y += lineH;
+    }
+
+    var bw = Math.min(320, W - 60);
+    var bx = (W - bw) / 2;
+
+    var bReset = { x: bx, y: H - 130, w: bw, h: 50, text: "Сбросить статистику", id: "reset_stats" };
+    var bBack = { x: bx, y: H - 70, w: bw, h: 50, text: "Назад", id: "back" };
+    this.buttons = [bReset, bBack];
+    drawButtons(this.buttons);
+  },
+
+  drawAchievements: function() {
+    exitButtonZone = null;
+    this.buttons = [];
+    hideFileLabel();
+    hideHexInput();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 30px " + FONT_FAMILY;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("ДОСТИЖЕНИЯ", W / 2, H * 0.04);
+
+    // вкладки
+    var tabs = [
+      { id: "common",   label: "Общие" },
+      { id: "timed",    label: "На время" },
+      { id: "endless",  label: "Свободный" },
+      { id: "sprint",   label: "Спринт" },
+      { id: "accuracy", label: "Точность" }
+    ];
+
+    var tabY = H * 0.09;
+    var tabW = Math.min((W - 20) / 5, 100);
+    var totalW = tabW * 5;
+    var tabStartX = (W - totalW) / 2;
+    var tabH = 32;
+
+    this.buttons = [];
+    for (var ti = 0; ti < tabs.length; ti++) {
+      var tab = tabs[ti];
+      var tx = tabStartX + ti * tabW;
+      var isActive = (this.achTab === tab.id);
+      var btn = { x: tx, y: tabY, w: tabW - 2, h: tabH, text: tab.label, id: "tab_" + tab.id };
+      this.buttons.push(btn);
+
+      ctx.fillStyle = isActive ? "#3c3c50" : "#232332";
+      ctx.fillRect(tx, tabY, tabW - 2, tabH);
+      ctx.strokeStyle = isActive ? "#f0c050" : "#50505a";
+      ctx.lineWidth = isActive ? 2 : 1;
+      ctx.strokeRect(tx, tabY, tabW - 2, tabH);
+      ctx.fillStyle = "#f0f0f0";
+      ctx.font = "bold 10px " + FONT_FAMILY;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(tab.label, tx + (tabW - 2) / 2, tabY + tabH / 2);
+    }
+
+    // фильтр достижений по вкладке
+    var visible = [];
+    for (var ai = 0; ai < ACHIEVEMENTS_LIST.length; ai++) {
+      if (ACHIEVEMENTS_LIST[ai].cat === this.achTab) visible.push(ACHIEVEMENTS_LIST[ai]);
+    }
+
+    // прокрутка
+    var listTop = tabY + tabH + 12;
+    var listBottom = H - 80;
+    var cardH = 110;
+    var cardGap = 8;
+    var contentH = visible.length * (cardH + cardGap);
+    var viewH = listBottom - listTop;
+
+    this.achMaxScroll = Math.max(0, contentH - viewH);
+    if (this.achScroll > this.achMaxScroll) this.achScroll = this.achMaxScroll;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, listTop, W, viewH);
+    ctx.clip();
+
+    var cardX = 20;
+    var cardW = W - 40;
+
+    for (var vi = 0; vi < visible.length; vi++) {
+      var a = visible[vi];
+      var cy = listTop + vi * (cardH + cardGap) - this.achScroll;
+
+      if (cy + cardH < listTop - 20) continue;
+      if (cy > listBottom + 20) continue;
+
+      var earned = !!achievementsEarned[a.id];
+      var bgC = earned ? "#2a2a3a" : "#1a1a24";
+      var bdC = earned ? "#f0c050" : "#404050";
+
+      ctx.save();
+      ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetX = 2;
+      ctx.shadowOffsetY = 3;
+      ctx.fillStyle = bgC;
+      ctx.fillRect(cardX, cy, cardW, cardH);
+      ctx.restore();
+
+      ctx.strokeStyle = bdC;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cardX, cy, cardW, cardH);
+
+      ctx.fillStyle = earned ? "#f0c050" : "#606070";
+      ctx.font = "bold 26px " + FONT_FAMILY;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText(earned ? "🏆" : "🔒", cardX + 12, cy + 12);
+
+      ctx.fillStyle = earned ? "#ffffff" : "#9090a0";
+      ctx.font = "bold 15px " + FONT_FAMILY;
+      ctx.fillText(a.name, cardX + 54, cy + 12);
+
+      ctx.fillStyle = "#a0a0b0";
+      ctx.font = "12px " + FONT_FAMILY;
+      ctx.fillText(a.desc, cardX + 54, cy + 34);
+
+      if (earned) {
+        var dateStr = "";
+        var ts = achievementsEarned[a.id];
+        if (ts) {
+          var d2 = new Date(ts);
+          var dd = d2.getDate();
+          var mm = d2.getMonth() + 1;
+          var yyyy = d2.getFullYear();
+          dateStr = (dd < 10 ? "0" : "") + dd + "." + (mm < 10 ? "0" : "") + mm + "." + yyyy;
+        }
+        ctx.fillStyle = "#f0c050";
+        ctx.font = "11px " + FONT_FAMILY;
+        ctx.fillText("Получено: " + dateStr, cardX + 54, cy + 58);
+      } else if (a.progress) {
+        var pr = a.progress({});
+        if (pr && pr.length === 2 && pr[1] > 0) {
+          ctx.fillStyle = "#c0c0d0";
+          ctx.font = "12px " + FONT_FAMILY;
+          if (pr[1] === 1) {
+            ctx.fillText(pr[0] === 1 ? "Ещё не выполнено" : "Ещё не выполнено", cardX + 54, cy + 58);
+          } else {
+            ctx.fillText("Прогресс: " + pr[0] + " / " + pr[1], cardX + 54, cy + 58);
+          }
+        }
+      }
+
+      // прогресс-бар
+      if (!earned && a.progress) {
+        var pr2 = a.progress({});
+        if (pr2 && pr2.length === 2 && pr2[1] > 1) {
+          var pct = Math.min(1, pr2[0] / pr2[1]);
+          var barX = cardX + 54;
+          var barY = cy + 78;
+          var barW = cardW - 54 - 12;
+          var barH = 8;
+          ctx.fillStyle = "#3a3a4a";
+          ctx.fillRect(barX, barY, barW, barH);
+          ctx.fillStyle = "#f0c050";
+          ctx.fillRect(barX, barY, barW * pct, barH);
+        }
+      }
+    }
+
+    ctx.restore();
+
+    // прокрутка — индикатор справа
+    if (this.achMaxScroll > 0) {
+      var scrollBarX = W - 6;
+      var scrollBarW = 3;
+      var ratio = viewH / contentH;
+      var thumbH = Math.max(30, viewH * ratio);
+      var thumbY = listTop + (this.achScroll / this.achMaxScroll) * (viewH - thumbH);
+      ctx.fillStyle = "rgba(255,255,255,0.15)";
+      ctx.fillRect(scrollBarX, listTop, scrollBarW, viewH);
+      ctx.fillStyle = "rgba(255,255,255,0.6)";
+      ctx.fillRect(scrollBarX, thumbY, scrollBarW, thumbH);
+    }
+
+    var bw = Math.min(320, W - 60);
+    var bx = (W - bw) / 2;
+
+    var bReset = { x: bx, y: H - 130, w: bw, h: 50, text: "Сбросить достижения", id: "reset_ach" };
+    var bBack = { x: bx, y: H - 70, w: bw, h: 50, text: "Назад", id: "back" };
+    this.buttons.push(bReset);
+    this.buttons.push(bBack);
+    drawButtons([bReset, bBack]);
+  },
+
+  drawConfirmReset: function() {
+    exitButtonZone = null;
+    this.buttons = [];
+    hideFileLabel();
+    hideHexInput();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 26px " + FONT_FAMILY;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(this.confirmTitle || "СБРОСИТЬ?", W / 2, H * 0.30);
+
+    ctx.font = "16px " + FONT_FAMILY;
+    ctx.fillStyle = "#c0c0d0";
+    ctx.fillText("Это действие нельзя отменить.", W / 2, H * 0.40);
+
+    var bw = Math.min(320, W - 60);
+    var bx = (W - bw) / 2;
+    var half = (bw - 15) / 2;
+
+    var b1 = { x: bx, y: H * 0.55, w: half, h: 60, text: "Да, сбросить", id: "yes" };
+    var b2 = { x: bx + half + 15, y: H * 0.55, w: half, h: 60, text: "Отмена", id: "no" };
+    this.buttons = [b1, b2];
+    drawButtons(this.buttons);
+  },
+
   drawPlaying: function() {
     hideFileLabel();
     hideHexInput();
@@ -2127,27 +2754,22 @@ var game = {
     drawPopups();
     drawParticles();
 
-    // счёт
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 24px " + FONT_FAMILY;
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
 
     if (this.mode === "sprint") {
-      var d = getDifficulty();
-      ctx.fillText("Поймано: " + this.score + "/" + d.sprintTarget, 20, 20);
+      var dd = getDifficulty();
+      ctx.fillText("Поймано: " + this.score + "/" + dd.sprintTarget, 20, 20);
       ctx.font = "20px " + FONT_FAMILY;
       ctx.fillText("Время: " + this.elapsedTime.toFixed(1) + " сек", 20, 52);
     } else {
       ctx.fillText("Очки: " + this.score, 20, 20);
       ctx.font = "20px " + FONT_FAMILY;
-      if (this.mode === "timed") {
-        ctx.fillText("Время: " + Math.ceil(this.timeLeft), 20, 52);
-      } else if (this.mode === "accuracy") {
-        ctx.fillText("Точность", 20, 52);
-      } else {
-        ctx.fillText("Свободный", 20, 52);
-      }
+      if (this.mode === "timed") ctx.fillText("Время: " + Math.ceil(this.timeLeft), 20, 52);
+      else if (this.mode === "accuracy") ctx.fillText("Точность", 20, 52);
+      else ctx.fillText("Свободный", 20, 52);
     }
 
     var hover = game.mouse.x >= exitX && game.mouse.x <= exitX + exitSize &&
@@ -2184,31 +2806,14 @@ var game = {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    // заголовок зависит от режима
-    if (this.mode === "timed") {
-      ctx.fillText("ВРЕМЯ ВЫШЛО", W / 2, H * 0.18);
-    } else if (this.mode === "sprint") {
-      ctx.fillText("ФИНИШ!", W / 2, H * 0.18);
-    } else if (this.mode === "accuracy") {
-      ctx.fillText("Ты закончил", W / 2, H * 0.18);
-    }
+    if (this.mode === "timed") ctx.fillText("ВРЕМЯ ВЫШЛО", W / 2, H * 0.18);
+    else if (this.mode === "sprint") ctx.fillText("ФИНИШ!", W / 2, H * 0.18);
+    else if (this.mode === "accuracy") ctx.fillText("Ты закончил", W / 2, H * 0.18);
 
     ctx.font = "24px " + FONT_FAMILY;
 
     if (this.mode === "sprint") {
-      // время и лучшее
-      var curTime = this.elapsedTime.toFixed(1);
-      var bestTime = (this.record / 1000).toFixed(1);
-      // хранение рекорда в спринте — как целое число миллисекунд
-      // но у нас elapsedTime в секундах
-      // поэтому переделаем: рекорд храним в секундах * 1000 (миллисекунды)
-      // НО чтобы не усложнять — сохраню как секунды * 10 (десятые доли секунды)
-      // и при показе разделю на 10
-      // проще: храним целое = секунды * 1000
-      // ПРОСТО: храним как секунды с 1 знаком после запятой умноженные на 10
-      // Переделаем: сохранение в finishSprint использует Math.round(elapsedTime * 1000)
-      // Сейчас вывод:
-      ctx.fillText("Время: " + curTime + " сек", W / 2, H * 0.34);
+      ctx.fillText("Время: " + this.elapsedTime.toFixed(1) + " сек", W / 2, H * 0.34);
       ctx.fillStyle = "#ffffff";
       ctx.font = "20px " + FONT_FAMILY;
       ctx.fillText("Лучшее: " + (this.record / 1000).toFixed(1) + " сек", W / 2, H * 0.42);
@@ -2281,20 +2886,16 @@ function drawButtons(list) {
     var b = list[i];
     var hover = game.mouse.x >= b.x && game.mouse.x <= b.x + b.w &&
                 game.mouse.y >= b.y && game.mouse.y <= b.y + b.h;
-
     ctx.save();
     ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
     ctx.shadowBlur = 8;
     ctx.shadowOffsetX = 3;
     ctx.shadowOffsetY = 4;
-
     ctx.fillStyle = hover ? "#3c3c50" : "#232332";
     ctx.fillRect(b.x, b.y, b.w, b.h);
     ctx.restore();
-
     ctx.strokeStyle = "#50505a"; ctx.lineWidth = 2;
     ctx.strokeRect(b.x, b.y, b.w, b.h);
-
     ctx.fillStyle = "#f0f0f0";
     ctx.font = "bold 17px " + FONT_FAMILY;
     ctx.textAlign = "center";
@@ -2307,20 +2908,14 @@ function drawButtons(list) {
 function posFromEvent(e) {
   var rect = canvas.getBoundingClientRect();
   var cx, cy;
-  if (e.touches && e.touches.length) {
-    cx = e.touches[0].clientX; cy = e.touches[0].clientY;
-  } else if (e.changedTouches && e.changedTouches.length) {
-    cx = e.changedTouches[0].clientX; cy = e.changedTouches[0].clientY;
-  } else {
-    cx = e.clientX; cy = e.clientY;
-  }
+  if (e.touches && e.touches.length) { cx = e.touches[0].clientX; cy = e.touches[0].clientY; }
+  else if (e.changedTouches && e.changedTouches.length) { cx = e.changedTouches[0].clientX; cy = e.changedTouches[0].clientY; }
+  else { cx = e.clientX; cy = e.clientY; }
   return { x: cx - rect.left, y: cy - rect.top };
 }
 
 function detectDragTarget(px, py) {
-  var PAD_Y = 30;
-  var PAD_X = 20;
-
+  var PAD_Y = 30, PAD_X = 20;
   if (game.state === SETTINGS_SOUND) {
     if (window.__fxBar) {
       var fb = window.__fxBar;
@@ -2333,7 +2928,6 @@ function detectDragTarget(px, py) {
           py >= mb.y - PAD_Y && py <= mb.y + mb.h + PAD_Y) return "music";
     }
   }
-
   if (game.state === SETTINGS_BG) {
     if (window.__pickerGrad) {
       var g = window.__pickerGrad;
@@ -2341,16 +2935,13 @@ function detectDragTarget(px, py) {
     }
     if (window.__pickerBar) {
       var bar = window.__pickerBar;
-      if (px >= bar.x - 20 && px <= bar.x + bar.w + 20 &&
-          py >= bar.y - 10 && py <= bar.y + bar.h + 10) return "pickerBar";
+      if (px >= bar.x - 20 && px <= bar.x + bar.w + 20 && py >= bar.y - 10 && py <= bar.y + bar.h + 10) return "pickerBar";
     }
     if (window.__pickerHue) {
       var hb = window.__pickerHue;
-      if (px >= hb.x && px <= hb.x + hb.w &&
-          py >= hb.y - 15 && py <= hb.y + hb.h + 15) return "pickerHue";
+      if (px >= hb.x && px <= hb.x + hb.w && py >= hb.y - 15 && py <= hb.y + hb.h + 15) return "pickerHue";
     }
   }
-
   if (game.state === SETTINGS_SQUARE) {
     if (window.__sqPickerGrad) {
       var sg = window.__sqPickerGrad;
@@ -2358,22 +2949,18 @@ function detectDragTarget(px, py) {
     }
     if (window.__sqPickerBar) {
       var sbar = window.__sqPickerBar;
-      if (px >= sbar.x - 20 && px <= sbar.x + sbar.w + 20 &&
-          py >= sbar.y - 10 && py <= sbar.y + sbar.h + 10) return "sqPickerBar";
+      if (px >= sbar.x - 20 && px <= sbar.x + sbar.w + 20 && py >= sbar.y - 10 && py <= sbar.y + sbar.h + 10) return "sqPickerBar";
     }
     if (window.__sqPickerHue) {
       var shb = window.__sqPickerHue;
-      if (px >= shb.x && px <= shb.x + shb.w &&
-          py >= shb.y - 15 && py <= shb.y + shb.h + 15) return "sqPickerHue";
+      if (px >= shb.x && px <= shb.x + shb.w && py >= shb.y - 15 && py <= shb.y + shb.h + 15) return "sqPickerHue";
     }
   }
-
   return null;
 }
 
 function xToVolume(x, barX, trackW) {
-  var left = barX;
-  var right = barX + trackW;
+  var left = barX, right = barX + trackW;
   if (x <= left) return 0;
   if (x >= right) return 1;
   return (x - left) / trackW;
@@ -2444,6 +3031,29 @@ function handleDrag(px, py) {
   }
 }
 
+// скролл достижений
+function startAchScroll(py) {
+  if (game.state !== ACHIEVEMENTS) return false;
+  var listTop = H * 0.09 + 32 + 12;
+  var listBottom = H - 80;
+  if (py < listTop || py > listBottom) return false;
+  game.achDragging = true;
+  game.achTouchY = py;
+  game.achTouchTime = Date.now();
+  return true;
+}
+function moveAchScroll(py) {
+  if (!game.achDragging) return;
+  var dy = game.achTouchY - py;
+  game.achScroll += dy;
+  if (game.achScroll < 0) game.achScroll = 0;
+  if (game.achScroll > game.achMaxScroll) game.achScroll = game.achMaxScroll;
+  game.achTouchY = py;
+}
+function endAchScroll() {
+  game.achDragging = false;
+}
+
 canvas.addEventListener("mousemove", function(e) {
   var p = posFromEvent(e);
   game.mouse.x = p.x;
@@ -2454,6 +3064,10 @@ canvas.addEventListener("mousemove", function(e) {
 canvas.addEventListener("mousedown", function(e) {
   var p = posFromEvent(e);
   game.mouse.x = p.x; game.mouse.y = p.y;
+
+  // проверка начала скролла достижений
+  if (startAchScroll(p.y)) return;
+
   var target = detectDragTarget(p.x, p.y);
   if (target) {
     dragging = target;
@@ -2463,13 +3077,23 @@ canvas.addEventListener("mousedown", function(e) {
   game.click(p.x, p.y);
 });
 
-canvas.addEventListener("mouseup", function() { dragging = null; });
-canvas.addEventListener("mouseleave", function() { dragging = null; });
+canvas.addEventListener("mouseup", function() {
+  dragging = null;
+  endAchScroll();
+});
+canvas.addEventListener("mouseleave", function() {
+  dragging = null;
+  endAchScroll();
+});
 
 canvas.addEventListener("touchstart", function(e) {
   e.preventDefault();
   var p = posFromEvent(e);
   game.mouse.x = p.x; game.mouse.y = p.y;
+
+  // скролл достижений
+  if (startAchScroll(p.y)) return;
+
   var target = detectDragTarget(p.x, p.y);
   if (target) {
     dragging = target;
@@ -2483,16 +3107,19 @@ canvas.addEventListener("touchmove", function(e) {
   e.preventDefault();
   var p = posFromEvent(e);
   game.mouse.x = p.x; game.mouse.y = p.y;
+  if (game.achDragging) { moveAchScroll(p.y); return; }
   if (dragging) handleDrag(p.x, p.y);
 }, { passive: false });
 
 canvas.addEventListener("touchend", function(e) {
   e.preventDefault();
   dragging = null;
+  endAchScroll();
 }, { passive: false });
 
 canvas.addEventListener("touchcancel", function(e) {
   dragging = null;
+  endAchScroll();
 }, { passive: false });
 
 // ---------- ЦИКЛ ----------
@@ -2507,6 +3134,7 @@ function loop() {
 }
 
 // ---------- СТАРТ ----------
+loadStats();
 game.reset();
 initBg();
 initSqImage();
