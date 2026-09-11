@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Поймай меня</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -31,18 +31,144 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-var MENU = "menu", PLAYING = "playing", GAME_OVER = "game_over";
+// ---------- СОСТОЯНИЯ ----------
+var MENU = "menu";
+var PLAYING = "playing";
+var GAME_OVER = "game_over";
+var SETTINGS = "settings";
+
+// ---------- ЦВЕТА КВАДРАТИКА ----------
 var COLORS = ["#ff5050", "#50ff78", "#50a0ff", "#ffdc50", "#dc50ff", "#50fff0"];
 
+// ---------- ПРОГРЕССИЯ ----------
 var LEVELS = [
-  { score: 0,  speed: 1.2, behavior: "run" },
-  { score: 3,  speed: 1.6, behavior: "dash" },
-  { score: 6,  speed: 2.0, behavior: "teleport" },
-  { score: 9,  speed: 2.4, behavior: "disguise" },
-  { score: 12, speed: 2.8, behavior: "multiply" },
-  { score: 15, speed: 3.2, behavior: "hunt" }
+  { score: 0,  speed: 2.0, behavior: "run" },
+  { score: 3,  speed: 3.0, behavior: "dash" },
+  { score: 6,  speed: 3.5, behavior: "teleport" },
+  { score: 9,  speed: 4.0, behavior: "disguise" },
+  { score: 12, speed: 4.5, behavior: "multiply" },
+  { score: 15, speed: 5.0, behavior: "hunt" }
 ];
 
+// ---------- ХРАНИЛИЩЕ ЦВЕТА ФОНА ----------
+var bgColor = null;
+try { bgColor = localStorage.getItem("catchme_bgcolor") || null; } catch(e) {}
+
+// ---------- ХРАНИЛИЩЕ ФОТО (IndexedDB) ----------
+var bgImage = null;
+var bgImageURL = null;
+
+function openDB() {
+  return new Promise(function(resolve, reject) {
+    var req = indexedDB.open("catchme_db", 1);
+    req.onupgradeneeded = function(e) {
+      var db = e.target.result;
+      if (!db.objectStoreNames.contains("bg")) {
+        db.createObjectStore("bg");
+      }
+    };
+    req.onsuccess = function(e) { resolve(e.target.result); };
+    req.onerror = function(e) { reject(e.target.error); };
+  });
+}
+
+function saveBg(blob) {
+  return openDB().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction("bg", "readwrite");
+      tx.objectStore("bg").put(blob, "image");
+      tx.oncomplete = function() { resolve(); };
+      tx.onerror = function(e) { reject(e.target.error); };
+    });
+  });
+}
+
+function loadBg() {
+  return openDB().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction("bg", "readonly");
+      var req = tx.objectStore("bg").get("image");
+      req.onsuccess = function() { resolve(req.result || null); };
+      req.onerror = function(e) { reject(e.target.error); };
+    });
+  });
+}
+
+function deleteBg() {
+  return openDB().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction("bg", "readwrite");
+      tx.objectStore("bg").delete("image");
+      tx.oncomplete = function() { resolve(); };
+      tx.onerror = function(e) { reject(e.target.error); };
+    });
+  });
+}
+
+function applyBgFromBlob(blob) {
+  if (bgImageURL) {
+    URL.revokeObjectURL(bgImageURL);
+    bgImageURL = null;
+  }
+  bgImageURL = URL.createObjectURL(blob);
+  var img = new Image();
+  img.onload = function() { bgImage = img; };
+  img.src = bgImageURL;
+}
+
+function initBg() {
+  loadBg().then(function(blob) {
+    if (blob) applyBgFromBlob(blob);
+  }).catch(function(e) {
+    console.log("Не удалось загрузить фон:", e);
+  });
+}
+
+// ---------- ВЫБОР ФОТО ----------
+function pickBgImage() {
+  var input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = function(e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 15 * 1024 * 1024) {
+      alert("Фото слишком большое. Выберите файл до 15 МБ.");
+      return;
+    }
+
+    // При выборе фото — сбрасываем цвет
+    bgColor = null;
+    try { localStorage.removeItem("catchme_bgcolor"); } catch(e) {}
+
+    saveBg(file).then(function() {
+      applyBgFromBlob(file);
+    }).catch(function(err) {
+      console.log("Не удалось сохранить фон:", err);
+      alert("Не удалось сохранить фон. Возможно, браузер запретил хранение.");
+    });
+  };
+  input.click();
+}
+
+// ---------- ЦВЕТ ФОНА ----------
+function pickBgColor(hex) {
+  bgColor = hex;
+  try { localStorage.setItem("catchme_bgcolor", hex); } catch(e) {}
+
+  // При выборе цвета — удаляем фото
+  if (bgImage) {
+    deleteBg().catch(function(){});
+    if (bgImageURL) {
+      URL.revokeObjectURL(bgImageURL);
+      bgImageURL = null;
+    }
+    bgImage = null;
+  }
+}
+
+// ---------- КВАДРАТИК ----------
 function Square() {
   this.size = 30;
   this.x = Math.random() * (W - 100) + 50;
@@ -63,7 +189,7 @@ Square.prototype.update = function(mx, my, score) {
   for (var i = 0; i < LEVELS.length; i++) {
     if (score >= LEVELS[i].score) current = LEVELS[i];
   }
-  this.speed = current.speed + score * 0.03;
+  this.speed = current.speed;
   this.behavior = this.fake ? "run" : current.behavior;
 
   var dx = this.x - mx;
@@ -129,13 +255,14 @@ Square.prototype.collides = function(mx, my) {
   return Math.abs(mx - this.x) < this.size / 2 && Math.abs(my - this.y) < this.size / 2;
 };
 
+// ---------- ИГРА ----------
 var game = {
   state: MENU,
   mode: "timed",
   score: 0,
   misses: 0,
   timeLeft: 30,
-  record: parseInt(localStorage.getItem("catchme_record") || "0"),
+  record: 0,
   square: null,
   fakeSquares: [],
   mouse: { x: 200, y: 200 },
@@ -192,6 +319,19 @@ var game = {
         if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) {
           if (b.id === "timed") this.start("timed");
           if (b.id === "endless") this.start("endless");
+          if (b.id === "settings") this.state = SETTINGS;
+          return;
+        }
+      }
+      return;
+    }
+
+    if (this.state === SETTINGS) {
+      for (var s = 0; s < this.buttons.length; s++) {
+        var sb = this.buttons[s];
+        if (px >= sb.x && px <= sb.x + sb.w && py >= sb.y && py <= sb.y + sb.h) {
+          if (sb.id === "back") this.state = MENU;
+          if (sb.id === "upload") pickBgImage();
           return;
         }
       }
@@ -225,12 +365,31 @@ var game = {
   },
 
   draw: function() {
-    ctx.fillStyle = "#0a0a0f";
-    ctx.fillRect(0, 0, W, H);
+    // ---- ФОН ----
+    if (bgImage) {
+      var imgRatio = bgImage.width / bgImage.height;
+      var screenRatio = W / H;
+      var dw, dh, dx, dy;
+      if (imgRatio > screenRatio) {
+        dh = H; dw = H * imgRatio; dx = (W - dw) / 2; dy = 0;
+      } else {
+        dw = W; dh = W / imgRatio; dx = 0; dy = (H - dh) / 2;
+      }
+      ctx.drawImage(bgImage, dx, dy, dw, dh);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+      ctx.fillRect(0, 0, W, H);
+    } else if (bgColor) {
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, W, H);
+    } else {
+      ctx.fillStyle = "#0a0a0f";
+      ctx.fillRect(0, 0, W, H);
+    }
 
     if (this.state === MENU) this.drawMenu();
     else if (this.state === PLAYING) this.drawPlaying();
     else if (this.state === GAME_OVER) this.drawGameOver();
+    else if (this.state === SETTINGS) this.drawSettings();
   },
 
   drawMenu: function() {
@@ -239,18 +398,68 @@ var game = {
     ctx.font = "bold 52px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("ПОЙМАЙ МЕНЯ", W / 2, H * 0.25);
+    ctx.fillText("ПОЙМАЙ МЕНЯ", W / 2, H * 0.22);
 
     ctx.fillStyle = "#808090";
     ctx.font = "20px Arial";
-    ctx.fillText("Рекорд: " + this.record, W / 2, H * 0.35);
+    ctx.fillText("Рекорд: " + this.record, W / 2, H * 0.32);
 
     var bw = Math.min(320, W - 60);
     var bx = (W - bw) / 2;
 
-    var b1 = { x: bx, y: H * 0.50, w: bw, h: 60, text: "На время (30 сек)", id: "timed" };
-    var b2 = { x: bx, y: H * 0.50 + 80, w: bw, h: 60, text: "Бесконечный", id: "endless" };
-    this.buttons = [b1, b2];
+    var b1 = { x: bx, y: H * 0.42, w: bw, h: 60, text: "На время (30 сек)", id: "timed" };
+    var b2 = { x: bx, y: H * 0.42 + 75, w: bw, h: 60, text: "Бесконечный", id: "endless" };
+    var b3 = { x: bx, y: H * 0.42 + 150, w: bw, h: 60, text: "Настройки", id: "settings" };
+    this.buttons = [b1, b2, b3];
+    drawButtons(this.buttons);
+  },
+
+  drawSettings: function() {
+    this.buttons = [];
+
+    ctx.fillStyle = "#f0f0f0";
+    ctx.font = "bold 44px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("НАСТРОЙКИ", W / 2, H * 0.15);
+
+    ctx.fillStyle = "#a0a0b0";
+    ctx.font = "22px Arial";
+    ctx.fillText("Фон игры", W / 2, H * 0.26);
+
+    // --- выбор цвета ---
+    ctx.fillStyle = "#c0c0d0";
+    ctx.font = "18px Arial";
+    ctx.fillText("Выберите цвет:", W / 2, H * 0.36);
+
+    // цветовой квадрат
+    var sw = 80, sh = 60;
+    var sx = W / 2 - sw / 2;
+    var sy = H * 0.40;
+
+    // рамка
+    ctx.strokeStyle = "#606070";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx - 2, sy - 2, sw + 4, sh + 4);
+
+    // сам цвет
+    ctx.fillStyle = bgColor || "#0a0a0f";
+    ctx.fillRect(sx, sy, sw, sh);
+
+    // сохраняем координаты для клика
+    window.__colorSwatch = { x: sx, y: sy, w: sw, h: sh };
+
+    // --- или фото ---
+    ctx.fillStyle = "#a0a0b0";
+    ctx.font = "18px Arial";
+    ctx.fillText("или", W / 2, H * 0.55);
+
+    var bw = Math.min(300, W - 60);
+    var bx = (W - bw) / 2;
+
+    var bUp = { x: bx, y: H * 0.60, w: bw, h: 60, text: "Загрузить фото", id: "upload" };
+    var bBack = { x: bx, y: H * 0.60 + 90, w: bw, h: 60, text: "Назад", id: "back" };
+    this.buttons = [bUp, bBack];
     drawButtons(this.buttons);
   },
 
@@ -325,6 +534,19 @@ function drawButtons(list) {
   }
 }
 
+// ---------- ЦВЕТОВАЯ ПАЛИТРА (скрытый input) ----------
+var colorInput = document.createElement("input");
+colorInput.type = "color";
+colorInput.value = bgColor || "#0a0a0f";
+colorInput.style.position = "absolute";
+colorInput.style.left = "-9999px";
+document.body.appendChild(colorInput);
+
+colorInput.addEventListener("input", function(e) {
+  pickBgColor(e.target.value);
+});
+
+// ---------- ВВОД ----------
 function posFromEvent(e) {
   var rect = canvas.getBoundingClientRect();
   var cx, cy;
@@ -346,6 +568,17 @@ canvas.addEventListener("mousemove", function(e) {
 
 canvas.addEventListener("click", function(e) {
   var p = posFromEvent(e);
+
+  // если открыт экран настроек — проверить клик по цветовому квадрату
+  if (game.state === SETTINGS && window.__colorSwatch) {
+    var sw = window.__colorSwatch;
+    if (p.x >= sw.x && p.x <= sw.x + sw.w &&
+        p.y >= sw.y && p.y <= sw.y + sw.h) {
+      colorInput.click();
+      return;
+    }
+  }
+
   game.click(p.x, p.y);
 });
 
@@ -354,6 +587,16 @@ canvas.addEventListener("touchstart", function(e) {
   var p = posFromEvent(e);
   game.mouse.x = p.x;
   game.mouse.y = p.y;
+
+  if (game.state === SETTINGS && window.__colorSwatch) {
+    var sw = window.__colorSwatch;
+    if (p.x >= sw.x && p.x <= sw.x + sw.w &&
+        p.y >= sw.y && p.y <= sw.y + sw.h) {
+      colorInput.click();
+      return;
+    }
+  }
+
   game.click(p.x, p.y);
 }, { passive: false });
 
@@ -364,6 +607,7 @@ canvas.addEventListener("touchmove", function(e) {
   game.mouse.y = p.y;
 }, { passive: false });
 
+// ---------- ЦИКЛ ----------
 var lastTime = Date.now();
 function loop() {
   var now = Date.now();
@@ -374,7 +618,13 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
+// ---------- СТАРТ ----------
+try {
+  game.record = parseInt(localStorage.getItem("catchme_record") || "0");
+} catch(e) { game.record = 0; }
+
 game.reset();
+initBg();
 loop();
 </script>
 </body>
