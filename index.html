@@ -62,6 +62,9 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
+// что сейчас тянет пользователь
+var dragging = null;
+
 // ---------- СОСТОЯНИЯ ----------
 var MENU = "menu";
 var PLAYING = "playing";
@@ -138,7 +141,6 @@ function unlockAudio() {
   }
 }
 
-// ---- эффекты ----
 function playTone(freq, duration, type, volumeScale, freqEnd) {
   if (!soundEnabled) return;
   if (fxVolume <= 0) return;
@@ -169,49 +171,25 @@ function soundHit(score) {
   var baseFreq = 700 + Math.min(score * 40, 800);
   playTone(baseFreq, 0.08, "square", 0.8);
 }
-function soundGameOver() {
-  playTone(500, 0.5, "sine", 0.9, 120);
-}
-function soundStart() {
-  playTone(400, 0.15, "sine", 0.7, 800);
-}
-function soundClick() {
-  playTone(900, 0.04, "square", 0.4);
-}
-function soundTeleport() {
-  playTone(300, 0.12, "sine", 0.5, 1200);
-}
-function soundBoost() {
-  playTone(1100, 0.06, "triangle", 0.5);
-}
+function soundGameOver() { playTone(500, 0.5, "sine", 0.9, 120); }
+function soundStart()    { playTone(400, 0.15, "sine", 0.7, 800); }
+function soundClick()    { playTone(900, 0.04, "square", 0.4); }
+function soundTeleport() { playTone(300, 0.12, "sine", 0.5, 1200); }
+function soundBoost()    { playTone(1100, 0.06, "triangle", 0.5); }
 
 // ============================================================
 // МУЗЫКА
 // ============================================================
-// Ноты (частоты в Гц):
-// C4=261.63 D4=293.66 E4=329.63 F4=349.23 G4=392.00 A4=440.00 B4=493.88
-// C5=523.25 D5=587.33 E5=659.25 F5=698.46 G5=783.99 A5=880.00 B5=987.77
-// C6=1046.50
-//
-// Пентатоника C: C D E G A — все ноты сочетаются.
-// Аккорд: к ноте мелодии добавляем ноту на 2 ступени выше (терция).
-
-// --- Меню: спокойная, 8 нот ---
 var MELODY_MENU = [
   523.25, 587.33, 659.25, 783.99,
   659.25, 587.33, 523.25, 392.00
 ];
 var BASS_MENU = [130.81, 130.81, 164.81, 164.81];
 
-// --- Игра, трек 1: весёлый, 32 ноты ---
 var MELODY_GAME1 = [
-  // фраза 1
   523.25, 587.33, 659.25, 783.99, 659.25, 587.33, 523.25, 587.33,
-  // фраза 2
   659.25, 783.99, 880.00, 1046.50, 880.00, 783.99, 659.25, 587.33,
-  // фраза 3
   523.25, 659.25, 783.99, 880.00, 783.99, 659.25, 523.25, 392.00,
-  // фраза 4
   523.25, 587.33, 659.25, 783.99, 880.00, 783.99, 659.25, 523.25
 ];
 var BASS_GAME1 = [
@@ -221,15 +199,10 @@ var BASS_GAME1 = [
   174.61, 174.61, 130.81, 130.81
 ];
 
-// --- Игра, трек 2: энергичный, 32 ноты ---
 var MELODY_GAME2 = [
-  // фраза 1
   659.25, 783.99, 880.00, 1046.50, 880.00, 783.99, 880.00, 1046.50,
-  // фраза 2
   1174.66, 1046.50, 880.00, 783.99, 880.00, 1046.50, 1174.66, 1318.51,
-  // фраза 3
   1174.66, 1046.50, 880.00, 783.99, 659.25, 783.99, 880.00, 1046.50,
-  // фраза 4
   880.00, 783.99, 659.25, 587.33, 523.25, 587.33, 659.25, 783.99
 ];
 var BASS_GAME2 = [
@@ -239,15 +212,10 @@ var BASS_GAME2 = [
   146.83, 146.83, 164.81, 164.81
 ];
 
-// --- Игра, трек 3: задорный, 32 ноты ---
 var MELODY_GAME3 = [
-  // фраза 1
   523.25, 659.25, 523.25, 783.99, 659.25, 523.25, 587.33, 659.25,
-  // фраза 2
   783.99, 880.00, 783.99, 1046.50, 880.00, 783.99, 880.00, 1046.50,
-  // фраза 3
   880.00, 783.99, 659.25, 587.33, 659.25, 783.99, 880.00, 783.99,
-  // фраза 4
   659.25, 587.33, 523.25, 587.33, 659.25, 783.99, 659.25, 523.25
 ];
 var BASS_GAME3 = [
@@ -257,21 +225,18 @@ var BASS_GAME3 = [
   130.81, 130.81, 146.83, 146.83
 ];
 
-// --- Game Over: грустная, 8 нот, минор ---
 var MELODY_GAMEOVER = [
   440.00, 415.30, 392.00, 349.23,
   329.63, 293.66, 261.63, 220.00
 ];
 var BASS_GAMEOVER = [110.00, 110.00, 87.31, 87.31];
 
-// Музыкальный движок
 var musicPlaying = false;
 var musicTimer = null;
 var musicStep = 0;
-var musicMode = "menu"; // "menu", "game", "gameover", "silent"
-var gameTrackIndex = 0; // 0, 1, 2 — какой из трёх игровых треков играет
-
-var MELODY_TEMPO = 220; // мс между нотами
+var musicMode = "menu";
+var gameTrackIndex = 0;
+var MELODY_TEMPO = 220;
 
 function getCurrentMelody() {
   if (musicMode === "menu") return MELODY_MENU;
@@ -295,7 +260,6 @@ function getCurrentBass() {
   return BASS_MENU;
 }
 
-// Играем ноту
 function playMusicNote() {
   if (!audioCtx || !soundEnabled || musicVolume <= 0) return;
   if (musicMode === "silent") return;
@@ -305,7 +269,6 @@ function playMusicNote() {
   var now = audioCtx.currentTime;
   var idx = musicStep % melody.length;
 
-  // --- МЕЛОДИЯ ---
   var f = melody[idx];
   try {
     var osc = audioCtx.createOscillator();
@@ -322,13 +285,11 @@ function playMusicNote() {
     osc.stop(now + 0.22);
   } catch(e) {}
 
-  // --- АККОРД (каждая 4-я нота) ---
   if (idx % 4 === 0 && musicMode !== "gameover") {
     try {
       var oscC = audioCtx.createOscillator();
       var gainC = audioCtx.createGain();
       oscC.type = "square";
-      // нота на терцию выше (примерно x1.25)
       oscC.frequency.setValueAtTime(f * 1.25, now);
       var peakC = musicVolume * 0.04;
       gainC.gain.setValueAtTime(0.0001, now);
@@ -341,7 +302,6 @@ function playMusicNote() {
     } catch(e) {}
   }
 
-  // --- БАС (каждые 2 шага) ---
   if (idx % 2 === 0) {
     var bassF = bassLine[Math.floor(idx / 2) % bassLine.length];
     try {
@@ -361,8 +321,6 @@ function playMusicNote() {
   }
 
   musicStep++;
-
-  // конец трека — переключаем
   if (musicStep >= melody.length) {
     musicStep = 0;
     onMelodyEnd();
@@ -371,14 +329,11 @@ function playMusicNote() {
 
 function onMelodyEnd() {
   if (musicMode === "game") {
-    // переключаем на следующий игровой трек
     gameTrackIndex = (gameTrackIndex + 1) % 3;
   } else if (musicMode === "gameover") {
-    // грустная играет один раз и затихает
     stopMusic();
     musicMode = "silent";
   }
-  // в меню — просто по кругу ту же мелодию
 }
 
 function startMusic() {
@@ -387,7 +342,6 @@ function startMusic() {
   if (!audioCtx) return;
   if (!soundEnabled || musicVolume <= 0) return;
   if (musicMode === "silent") return;
-
   musicPlaying = true;
   musicStep = 0;
   playMusicNote();
@@ -400,21 +354,16 @@ function stopMusic() {
   if (musicTimer) { clearInterval(musicTimer); musicTimer = null; }
 }
 
-// Сменить режим музыки
 function setMusicMode(mode) {
-  var wasPlaying = musicPlaying;
   stopMusic();
   musicMode = mode;
   musicStep = 0;
-  if (mode === "game") {
-    gameTrackIndex = 0; // начинаем с трека 1
-  }
+  if (mode === "game") gameTrackIndex = 0;
   if (soundEnabled && musicVolume > 0 && mode !== "silent") {
     startMusic();
   }
 }
 
-// Убедиться, что играет нужное (после разблокировки аудио)
 function ensureMusicPlaying() {
   if (musicPlaying) return;
   if (musicMode === "silent") return;
@@ -422,7 +371,6 @@ function ensureMusicPlaying() {
   if (!audioReady) initAudio();
   if (audioReady) startMusic();
 }
-
 // ============================================================
 
 // ---------- ХРАНИЛИЩА ----------
@@ -480,7 +428,6 @@ function initPickerFromColorObj(picker, hex) {
 
 var picker = { hue: 0, sat: 1, val: 1 };
 initPickerFromColorObj(picker, bgColor);
-
 var squarePicker = { hue: 0, sat: 1, val: 1 };
 initPickerFromColorObj(squarePicker, squareColor);
 
@@ -688,7 +635,6 @@ function Square() {
 
 Square.prototype.update = function(mx, my, score, dt) {
   if (!dt) dt = 1/60;
-
   var current = LEVELS[0];
   for (var i = 0; i < LEVELS.length; i++) {
     if (score >= LEVELS[i].score) current = LEVELS[i];
@@ -798,9 +744,7 @@ Square.prototype.collides = function(mx, my) {
 
 // ---------- «+1» ----------
 var popups = [];
-function spawnPopup(x, y) {
-  popups.push({ x: x, y: y, life: 0.8, maxLife: 0.8 });
-}
+function spawnPopup(x, y) { popups.push({ x: x, y: y, life: 0.8, maxLife: 0.8 }); }
 function updatePopups(dt) {
   for (var i = popups.length - 1; i >= 0; i--) {
     var p = popups[i];
@@ -812,8 +756,7 @@ function updatePopups(dt) {
 function drawPopups() {
   for (var i = 0; i < popups.length; i++) {
     var p = popups[i];
-    var alpha = Math.max(0, p.life / p.maxLife);
-    ctx.globalAlpha = alpha;
+    ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 28px Arial";
     ctx.textAlign = "center";
@@ -866,7 +809,6 @@ var game = {
 
   update: function(dt) {
     updatePopups(dt);
-
     if (this.state !== PLAYING) return;
     var mx = this.mouse.x, my = this.mouse.y;
     this.square.update(mx, my, this.score, dt);
@@ -921,36 +863,7 @@ var game = {
     }
 
     if (this.state === SETTINGS_BG) {
-      if (window.__pickerGrad) {
-        var g = window.__pickerGrad;
-        if (px >= g.x && px <= g.x + g.w && py >= g.y && py <= g.y + g.h) {
-          picker.sat = Math.max(0, Math.min(1, (px - g.x) / g.w));
-          picker.val = 1 - Math.max(0, Math.min(1, (py - g.y) / g.h));
-          var rgb = hsvToRgb(picker.hue, picker.sat, picker.val);
-          pickBgColor(rgbToHex(rgb[0], rgb[1], rgb[2]));
-          return;
-        }
-      }
-      if (window.__pickerBar) {
-        var bar = window.__pickerBar;
-        if (px >= bar.x && px <= bar.x + bar.w && py >= bar.y && py <= bar.y + bar.h) {
-          picker.val = 1 - Math.max(0, Math.min(1, (py - bar.y) / bar.h));
-          var rgb2 = hsvToRgb(picker.hue, picker.sat, picker.val);
-          pickBgColor(rgbToHex(rgb2[0], rgb2[1], rgb2[2]));
-          return;
-        }
-      }
-      if (window.__pickerHue) {
-        var hb = window.__pickerHue;
-        if (px >= hb.x && px <= hb.x + hb.w && py >= hb.y && py <= hb.y + hb.h) {
-          picker.hue = ((px - hb.x) / hb.w) * 360;
-          if (picker.hue < 0) picker.hue = 0;
-          if (picker.hue > 360) picker.hue = 360;
-          var rgb3 = hsvToRgb(picker.hue, picker.sat, picker.val);
-          pickBgColor(rgbToHex(rgb3[0], rgb3[1], rgb3[2]));
-          return;
-        }
-      }
+      // градиент, ползунок, hue-полоса обрабатываются в drag — здесь только кнопки
       for (var m = 0; m < this.buttons.length; m++) {
         var bb = this.buttons[m];
         if (px >= bb.x && px <= bb.x + bb.w && py >= bb.y && py <= bb.y + bb.h) {
@@ -966,36 +879,6 @@ var game = {
     }
 
     if (this.state === SETTINGS_SQUARE) {
-      if (window.__sqPickerGrad) {
-        var sg = window.__sqPickerGrad;
-        if (px >= sg.x && px <= sg.x + sg.w && py >= sg.y && py <= sg.y + sg.h) {
-          squarePicker.sat = Math.max(0, Math.min(1, (px - sg.x) / sg.w));
-          squarePicker.val = 1 - Math.max(0, Math.min(1, (py - sg.y) / sg.h));
-          var srgb = hsvToRgb(squarePicker.hue, squarePicker.sat, squarePicker.val);
-          pickSquareColor(rgbToHex(srgb[0], srgb[1], srgb[2]));
-          return;
-        }
-      }
-      if (window.__sqPickerBar) {
-        var sbar = window.__sqPickerBar;
-        if (px >= sbar.x && px <= sbar.x + sbar.w && py >= sbar.y && py <= sbar.y + sbar.h) {
-          squarePicker.val = 1 - Math.max(0, Math.min(1, (py - sbar.y) / sbar.h));
-          var srgb2 = hsvToRgb(squarePicker.hue, squarePicker.sat, squarePicker.val);
-          pickSquareColor(rgbToHex(srgb2[0], srgb2[1], srgb2[2]));
-          return;
-        }
-      }
-      if (window.__sqPickerHue) {
-        var shb = window.__sqPickerHue;
-        if (px >= shb.x && px <= shb.x + shb.w && py >= shb.y && py <= shb.y + shb.h) {
-          squarePicker.hue = ((px - shb.x) / shb.w) * 360;
-          if (squarePicker.hue < 0) squarePicker.hue = 0;
-          if (squarePicker.hue > 360) squarePicker.hue = 360;
-          var srgb3 = hsvToRgb(squarePicker.hue, squarePicker.sat, squarePicker.val);
-          pickSquareColor(rgbToHex(srgb3[0], srgb3[1], srgb3[2]));
-          return;
-        }
-      }
       for (var sm = 0; sm < this.buttons.length; sm++) {
         var sbb = this.buttons[sm];
         if (px >= sbb.x && px <= sbb.x + sbb.w && py >= sbb.y && py <= sbb.y + sbb.h) {
@@ -1011,6 +894,7 @@ var game = {
     }
 
     if (this.state === SETTINGS_SOUND) {
+      // ползунки — в drag, здесь только кнопки
       for (var q = 0; q < this.buttons.length; q++) {
         var qb = this.buttons[q];
         if (px >= qb.x && px <= qb.x + qb.w && py >= qb.y && py <= qb.y + qb.h) {
@@ -1018,37 +902,12 @@ var game = {
           if (qb.id === "toggle") {
             soundEnabled = !soundEnabled;
             try { localStorage.setItem("catchme_sound", soundEnabled ? "1" : "0"); } catch(e) {}
-            if (soundEnabled) {
-              ensureMusicPlaying();
-            } else {
-              stopMusic();
-            }
+            if (soundEnabled) ensureMusicPlaying();
+            else stopMusic();
             return;
           }
-          if (qb.id === "test") {
-            playTone(880, 0.15, "square", 0.8);
-            return;
-          }
+          if (qb.id === "test") { playTone(880, 0.15, "square", 0.8); return; }
           if (qb.id === "back") { this.state = SETTINGS; return; }
-        }
-      }
-      if (window.__fxBar) {
-        var fb = window.__fxBar;
-        if (px >= fb.x && px <= fb.x + fb.w && py >= fb.y && py <= fb.y + fb.h) {
-          fxVolume = 1 - Math.max(0, Math.min(1, (py - fb.y) / fb.h));
-          try { localStorage.setItem("catchme_fxvol", fxVolume); } catch(e) {}
-          playTone(700, 0.06, "square", 0.6);
-          return;
-        }
-      }
-      if (window.__musicBar) {
-        var mb = window.__musicBar;
-        if (px >= mb.x && px <= mb.x + mb.w && py >= mb.y && py <= mb.y + mb.h) {
-          musicVolume = 1 - Math.max(0, Math.min(1, (py - mb.y) / mb.h));
-          try { localStorage.setItem("catchme_musicvol", musicVolume); } catch(e) {}
-          if (musicVolume <= 0) stopMusic();
-          else ensureMusicPlaying();
-          return;
         }
       }
       return;
@@ -1451,36 +1310,37 @@ var game = {
     var bx = (W - bw) / 2;
 
     var bToggle = {
-      x: bx, y: H * 0.22, w: bw, h: 60,
+      x: bx, y: H * 0.20, w: bw, h: 60,
       text: soundEnabled ? "Звук: ВКЛ" : "Звук: ВЫКЛ",
       id: "toggle"
     };
-    this.buttons = [bToggle];
-    drawButtons(this.buttons);
+    drawButtons([bToggle]);
 
-    // эффекты
-    var barY = H * 0.42;
+    // эффекты — бар высотой 40
+    var barH = 40;
+    var barY = H * 0.38;
     var barW = bw;
 
     ctx.fillStyle = "#c0c0d0";
     ctx.font = "18px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    ctx.fillText("Громкость эффектов: " + Math.round(fxVolume * 100) + "%", W / 2, barY - 8);
+    ctx.fillText("Громкость эффектов: " + Math.round(fxVolume * 100) + "%", W / 2, barY - 10);
 
     ctx.fillStyle = "#1a1a2a";
-    ctx.fillRect(bx, barY, barW, 30);
+    ctx.fillRect(bx, barY, barW, barH);
     ctx.strokeStyle = "#50505a"; ctx.lineWidth = 2;
-    ctx.strokeRect(bx, barY, barW, 30);
+    ctx.strokeRect(bx, barY, barW, barH);
     ctx.fillStyle = "#50a0ff";
-    ctx.fillRect(bx, barY, barW * fxVolume, 30);
+    ctx.fillRect(bx, barY, barW * fxVolume, barH);
 
     var knobX = bx + barW * fxVolume;
-    ctx.beginPath(); ctx.arc(knobX, barY + 15, 12, 0, Math.PI * 2);
+    var knobY = barY + barH / 2;
+    ctx.beginPath(); ctx.arc(knobX, knobY, 14, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff"; ctx.fill();
     ctx.strokeStyle = "#000000"; ctx.lineWidth = 2; ctx.stroke();
 
-    window.__fxBar = { x: bx, y: barY, w: barW, h: 30 };
+    window.__fxBar = { x: bx, y: barY, w: barW, h: barH };
 
     // музыка
     var mbarY = H * 0.58;
@@ -1488,21 +1348,22 @@ var game = {
     ctx.fillStyle = "#c0c0d0";
     ctx.font = "18px Arial";
     ctx.textBaseline = "bottom";
-    ctx.fillText("Громкость музыки: " + Math.round(musicVolume * 100) + "%", W / 2, mbarY - 8);
+    ctx.fillText("Громкость музыки: " + Math.round(musicVolume * 100) + "%", W / 2, mbarY - 10);
 
     ctx.fillStyle = "#1a1a2a";
-    ctx.fillRect(bx, mbarY, barW, 30);
+    ctx.fillRect(bx, mbarY, barW, barH);
     ctx.strokeStyle = "#50505a"; ctx.lineWidth = 2;
-    ctx.strokeRect(bx, mbarY, barW, 30);
+    ctx.strokeRect(bx, mbarY, barW, barH);
     ctx.fillStyle = "#50ff78";
-    ctx.fillRect(bx, mbarY, barW * musicVolume, 30);
+    ctx.fillRect(bx, mbarY, barW * musicVolume, barH);
 
     var mknobX = bx + barW * musicVolume;
-    ctx.beginPath(); ctx.arc(mknobX, mbarY + 15, 12, 0, Math.PI * 2);
+    var mknobY = mbarY + barH / 2;
+    ctx.beginPath(); ctx.arc(mknobX, mknobY, 14, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff"; ctx.fill();
     ctx.strokeStyle = "#000000"; ctx.lineWidth = 2; ctx.stroke();
 
-    window.__musicBar = { x: bx, y: mbarY, w: barW, h: 30 };
+    window.__musicBar = { x: bx, y: mbarY, w: barW, h: barH };
 
     var bTest = { x: bx, y: H * 0.72, w: bw, h: 55, text: "Проверить звук", id: "test" };
     var bBack = { x: bx, y: H * 0.72 + 70, w: bw, h: 55, text: "Назад", id: "back" };
@@ -1522,7 +1383,6 @@ var game = {
 
     for (var i = 0; i < this.fakeSquares.length; i++) this.fakeSquares[i].draw();
     this.square.draw();
-
     drawPopups();
 
     ctx.fillStyle = "#f0f0f0";
@@ -1627,20 +1487,161 @@ function posFromEvent(e) {
   return { x: cx - rect.left, y: cy - rect.top };
 }
 
+// определяем, начали ли тянуть что-то
+function detectDragTarget(px, py) {
+  var PAD_Y = 40;
+
+  if (game.state === SETTINGS_SOUND) {
+    if (window.__fxBar) {
+      var fb = window.__fxBar;
+      if (px >= fb.x - 20 && px <= fb.x + fb.w + 20 &&
+          py >= fb.y - PAD_Y && py <= fb.y + fb.h + PAD_Y) return "fx";
+    }
+    if (window.__musicBar) {
+      var mb = window.__musicBar;
+      if (px >= mb.x - 20 && px <= mb.x + mb.w + 20 &&
+          py >= mb.y - PAD_Y && py <= mb.y + mb.h + PAD_Y) return "music";
+    }
+  }
+
+  if (game.state === SETTINGS_BG) {
+    if (window.__pickerGrad) {
+      var g = window.__pickerGrad;
+      if (px >= g.x && px <= g.x + g.w && py >= g.y && py <= g.y + g.h) return "pickerGrad";
+    }
+    if (window.__pickerBar) {
+      var bar = window.__pickerBar;
+      if (px >= bar.x - 20 && px <= bar.x + bar.w + 20 &&
+          py >= bar.y - 10 && py <= bar.y + bar.h + 10) return "pickerBar";
+    }
+    if (window.__pickerHue) {
+      var hb = window.__pickerHue;
+      if (px >= hb.x && px <= hb.x + hb.w &&
+          py >= hb.y - 15 && py <= hb.y + hb.h + 15) return "pickerHue";
+    }
+  }
+
+  if (game.state === SETTINGS_SQUARE) {
+    if (window.__sqPickerGrad) {
+      var sg = window.__sqPickerGrad;
+      if (px >= sg.x && px <= sg.x + sg.w && py >= sg.y && py <= sg.y + sg.h) return "sqPickerGrad";
+    }
+    if (window.__sqPickerBar) {
+      var sbar = window.__sqPickerBar;
+      if (px >= sbar.x - 20 && px <= sbar.x + sbar.w + 20 &&
+          py >= sbar.y - 10 && py <= sbar.y + sbar.h + 10) return "sqPickerBar";
+    }
+    if (window.__sqPickerHue) {
+      var shb = window.__sqPickerHue;
+      if (px >= shb.x && px <= shb.x + shb.w &&
+          py >= shb.y - 15 && py <= shb.y + shb.h + 15) return "sqPickerHue";
+    }
+  }
+
+  return null;
+}
+
+function handleDrag(px, py) {
+  if (dragging === "fx" && window.__fxBar) {
+    var fb = window.__fxBar;
+    fxVolume = 1 - Math.max(0, Math.min(1, (py - fb.y) / fb.h));
+    try { localStorage.setItem("catchme_fxvol", fxVolume); } catch(e) {}
+    return;
+  }
+  if (dragging === "music" && window.__musicBar) {
+    var mb = window.__musicBar;
+    musicVolume = 1 - Math.max(0, Math.min(1, (py - mb.y) / mb.h));
+    try { localStorage.setItem("catchme_musicvol", musicVolume); } catch(e) {}
+    if (musicVolume <= 0) stopMusic();
+    else ensureMusicPlaying();
+    return;
+  }
+  if (dragging === "pickerGrad" && window.__pickerGrad) {
+    var g = window.__pickerGrad;
+    picker.sat = Math.max(0, Math.min(1, (px - g.x) / g.w));
+    picker.val = 1 - Math.max(0, Math.min(1, (py - g.y) / g.h));
+    var rgb = hsvToRgb(picker.hue, picker.sat, picker.val);
+    pickBgColor(rgbToHex(rgb[0], rgb[1], rgb[2]));
+    return;
+  }
+  if (dragging === "pickerBar" && window.__pickerBar) {
+    var bar = window.__pickerBar;
+    picker.val = 1 - Math.max(0, Math.min(1, (py - bar.y) / bar.h));
+    var rgb2 = hsvToRgb(picker.hue, picker.sat, picker.val);
+    pickBgColor(rgbToHex(rgb2[0], rgb2[1], rgb2[2]));
+    return;
+  }
+  if (dragging === "pickerHue" && window.__pickerHue) {
+    var hb = window.__pickerHue;
+    picker.hue = ((px - hb.x) / hb.w) * 360;
+    if (picker.hue < 0) picker.hue = 0;
+    if (picker.hue > 360) picker.hue = 360;
+    var rgb3 = hsvToRgb(picker.hue, picker.sat, picker.val);
+    pickBgColor(rgbToHex(rgb3[0], rgb3[1], rgb3[2]));
+    return;
+  }
+  if (dragging === "sqPickerGrad" && window.__sqPickerGrad) {
+    var sg = window.__sqPickerGrad;
+    squarePicker.sat = Math.max(0, Math.min(1, (px - sg.x) / sg.w));
+    squarePicker.val = 1 - Math.max(0, Math.min(1, (py - sg.y) / sg.h));
+    var srgb = hsvToRgb(squarePicker.hue, squarePicker.sat, squarePicker.val);
+    pickSquareColor(rgbToHex(srgb[0], srgb[1], srgb[2]));
+    return;
+  }
+  if (dragging === "sqPickerBar" && window.__sqPickerBar) {
+    var sbar = window.__sqPickerBar;
+    squarePicker.val = 1 - Math.max(0, Math.min(1, (py - sbar.y) / sbar.h));
+    var srgb2 = hsvToRgb(squarePicker.hue, squarePicker.sat, squarePicker.val);
+    pickSquareColor(rgbToHex(srgb2[0], srgb2[1], srgb2[2]));
+    return;
+  }
+  if (dragging === "sqPickerHue" && window.__sqPickerHue) {
+    var shb = window.__sqPickerHue;
+    squarePicker.hue = ((px - shb.x) / shb.w) * 360;
+    if (squarePicker.hue < 0) squarePicker.hue = 0;
+    if (squarePicker.hue > 360) squarePicker.hue = 360;
+    var srgb3 = hsvToRgb(squarePicker.hue, squarePicker.sat, squarePicker.val);
+    pickSquareColor(rgbToHex(srgb3[0], srgb3[1], srgb3[2]));
+    return;
+  }
+}
+
+// --- мышь ---
 canvas.addEventListener("mousemove", function(e) {
   var p = posFromEvent(e);
-  game.mouse.x = p.x; game.mouse.y = p.y;
+  game.mouse.x = p.x;
+  game.mouse.y = p.y;
+  if (dragging) handleDrag(p.x, p.y);
 });
 
-canvas.addEventListener("click", function(e) {
+canvas.addEventListener("mousedown", function(e) {
   var p = posFromEvent(e);
+  game.mouse.x = p.x; game.mouse.y = p.y;
+
+  var target = detectDragTarget(p.x, p.y);
+  if (target) {
+    dragging = target;
+    handleDrag(p.x, p.y);
+    return;
+  }
   game.click(p.x, p.y);
 });
 
+canvas.addEventListener("mouseup", function() { dragging = null; });
+canvas.addEventListener("mouseleave", function() { dragging = null; });
+
+// --- тач ---
 canvas.addEventListener("touchstart", function(e) {
   e.preventDefault();
   var p = posFromEvent(e);
   game.mouse.x = p.x; game.mouse.y = p.y;
+
+  var target = detectDragTarget(p.x, p.y);
+  if (target) {
+    dragging = target;
+    handleDrag(p.x, p.y);
+    return;
+  }
   game.click(p.x, p.y);
 }, { passive: false });
 
@@ -1648,6 +1649,16 @@ canvas.addEventListener("touchmove", function(e) {
   e.preventDefault();
   var p = posFromEvent(e);
   game.mouse.x = p.x; game.mouse.y = p.y;
+  if (dragging) handleDrag(p.x, p.y);
+}, { passive: false });
+
+canvas.addEventListener("touchend", function(e) {
+  e.preventDefault();
+  dragging = null;
+}, { passive: false });
+
+canvas.addEventListener("touchcancel", function(e) {
+  dragging = null;
 }, { passive: false });
 
 // ---------- ЦИКЛ ----------
