@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Поймай меня</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -15,10 +15,39 @@
     user-select: none;
   }
   canvas { display: block; touch-action: none; }
+  #fileInput { display: none; }
+  #fileLabel {
+    position: fixed;
+    display: none;
+    z-index: 100;
+    cursor: pointer;
+  }
+  /* Скрытый input для HEX-кода */
+  #hexInput {
+    position: fixed;
+    display: none;
+    z-index: 200;
+    font-size: 22px;
+    font-family: monospace;
+    padding: 8px 12px;
+    border: 2px solid #5050a0;
+    border-radius: 8px;
+    background: #1a1a2a;
+    color: #f0f0f0;
+    outline: none;
+    width: 200px;
+    text-align: center;
+  }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
+
+<!-- Скрытые элементы -->
+<input type="file" id="fileInput" accept="image/*">
+<label for="fileInput" id="fileLabel"></label>
+<input type="text" id="hexInput" maxlength="7" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="#000000">
+
 <script>
 var canvas = document.getElementById("game");
 var ctx = canvas.getContext("2d");
@@ -36,23 +65,84 @@ var MENU = "menu";
 var PLAYING = "playing";
 var GAME_OVER = "game_over";
 var SETTINGS = "settings";
+var SETTINGS_BG = "settings_bg";
 
 // ---------- ЦВЕТА КВАДРАТИКА ----------
 var COLORS = ["#ff5050", "#50ff78", "#50a0ff", "#ffdc50", "#dc50ff", "#50fff0"];
 
 // ---------- ПРОГРЕССИЯ ----------
 var LEVELS = [
-  { score: 0,  speed: 2.0, behavior: "run" },
-  { score: 3,  speed: 3.0, behavior: "dash" },
-  { score: 6,  speed: 3.5, behavior: "teleport" },
-  { score: 9,  speed: 4.0, behavior: "disguise" },
-  { score: 12, speed: 4.5, behavior: "multiply" },
-  { score: 15, speed: 5.0, behavior: "hunt" }
+  { score: 0,  speed: 1.2, behavior: "run" },
+  { score: 3,  speed: 1.6, behavior: "dash" },
+  { score: 6,  speed: 2.0, behavior: "teleport" },
+  { score: 9,  speed: 2.4, behavior: "disguise" },
+  { score: 12, speed: 2.8, behavior: "multiply" },
+  { score: 15, speed: 3.2, behavior: "hunt" }
 ];
 
 // ---------- ХРАНИЛИЩЕ ЦВЕТА ФОНА ----------
 var bgColor = null;
 try { bgColor = localStorage.getItem("catchme_bgcolor") || null; } catch(e) {}
+
+// ---------- HSV КОНВЕРТАЦИЯ ----------
+function hsvToRgb(h, s, v) {
+  var c = v * s;
+  var x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  var m = v - c;
+  var r = 0, g = 0, b = 0;
+  if (h < 60)       { r = c; g = x; b = 0; }
+  else if (h < 120) { r = x; g = c; b = 0; }
+  else if (h < 180) { r = 0; g = c; b = x; }
+  else if (h < 240) { r = 0; g = x; b = c; }
+  else if (h < 300) { r = x; g = 0; b = c; }
+  else              { r = c; g = 0; b = x; }
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+}
+
+function rgbToHex(r, g, b) {
+  function h(x) { var s = x.toString(16); return s.length === 1 ? "0" + s : s; }
+  return "#" + h(r) + h(g) + h(b);
+}
+
+function hexToRgb(hex) {
+  hex = hex.replace("#", "");
+  if (hex.length === 3) {
+    hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+  }
+  if (hex.length !== 6) return null;
+  var num = parseInt(hex, 16);
+  if (isNaN(num)) return null;
+  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+}
+
+// ---------- СОСТОЯНИЕ ПИКЕРА ----------
+var picker = {
+  hue: 0,          // 0..360
+  sat: 1,          // 0..1
+  val: 1,          // 0..1
+  dragging: false  // тянет ли пользователь по градиенту
+};
+
+// если есть сохранённый цвет — попробуем инициализировать пикер по нему
+function initPickerFromColor(hex) {
+  if (!hex) return;
+  var rgb = hexToRgb(hex);
+  if (!rgb) return;
+  var r = rgb[0] / 255, g = rgb[1] / 255, b = rgb[2] / 255;
+  var max = Math.max(r, g, b), min = Math.min(r, g, b);
+  var d = max - min;
+  var h = 0;
+  if (d !== 0) {
+    if (max === r) h = 60 * (((g - b) / d) % 6);
+    else if (max === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+  }
+  if (h < 0) h += 360;
+  picker.hue = h;
+  picker.sat = max === 0 ? 0 : d / max;
+  picker.val = max;
+}
+initPickerFromColor(bgColor);
 
 // ---------- ХРАНИЛИЩЕ ФОТО (IndexedDB) ----------
 var bgImage = null;
@@ -124,40 +214,96 @@ function initBg() {
   });
 }
 
-// ---------- ВЫБОР ФОТО ----------
-function pickBgImage() {
-  var input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = function(e) {
-    var file = e.target.files && e.target.files[0];
-    if (!file) return;
+// ---------- ОБРАБОТКА ФАЙЛА ----------
+var fileInput = document.getElementById("fileInput");
+var fileLabel = document.getElementById("fileLabel");
 
-    if (file.size > 15 * 1024 * 1024) {
-      alert("Фото слишком большое. Выберите файл до 15 МБ.");
-      return;
-    }
+fileInput.addEventListener("change", function(e) {
+  var file = e.target.files && e.target.files[0];
+  if (!file) { hideFileLabel(); return; }
+  if (file.size > 15 * 1024 * 1024) {
+    alert("Фото слишком большое. Выберите до 15 МБ.");
+    fileInput.value = "";
+    hideFileLabel();
+    return;
+  }
 
-    // При выборе фото — сбрасываем цвет
-    bgColor = null;
-    try { localStorage.removeItem("catchme_bgcolor"); } catch(e) {}
+  // сбрасываем цвет
+  bgColor = null;
+  try { localStorage.removeItem("catchme_bgcolor"); } catch(err) {}
 
-    saveBg(file).then(function() {
-      applyBgFromBlob(file);
-    }).catch(function(err) {
-      console.log("Не удалось сохранить фон:", err);
-      alert("Не удалось сохранить фон. Возможно, браузер запретил хранение.");
-    });
-  };
-  input.click();
+  saveBg(file).then(function() {
+    applyBgFromBlob(file);
+    hideFileLabel();
+  }).catch(function(err) {
+    console.log("Не удалось сохранить фон:", err);
+    alert("Не удалось сохранить фото.");
+    hideFileLabel();
+  });
+
+  fileInput.value = "";
+});
+
+function showFileLabel(x, y, w, h) {
+  fileLabel.style.display = "block";
+  fileLabel.style.left = x + "px";
+  fileLabel.style.top = y + "px";
+  fileLabel.style.width = w + "px";
+  fileLabel.style.height = h + "px";
 }
 
-// ---------- ЦВЕТ ФОНА ----------
+function hideFileLabel() {
+  fileLabel.style.display = "none";
+}
+
+// ---------- ОБРАБОТКА HEX ----------
+var hexInput = document.getElementById("hexInput");
+var hexInputVisible = false;
+
+function showHexInput(x, y, w, h, currentHex) {
+  hexInput.style.display = "block";
+  hexInput.style.left = x + "px";
+  hexInput.style.top = y + "px";
+  hexInput.style.width = w + "px";
+  hexInput.style.height = h + "px";
+  hexInput.value = currentHex || "#000000";
+  hexInputVisible = true;
+}
+
+function hideHexInput() {
+  hexInput.style.display = "none";
+  hexInputVisible = false;
+  hexInput.blur();
+}
+
+// Enter или потеря фокуса — применяем
+function applyHexInput() {
+  var val = hexInput.value.trim();
+  if (val.length > 0 && val[0] !== "#") val = "#" + val;
+  var rgb = hexToRgb(val);
+  if (rgb) {
+    pickBgColor(rgbToHex(rgb[0], rgb[1], rgb[2]));
+    initPickerFromColor(bgColor);
+  }
+  hideHexInput();
+}
+
+hexInput.addEventListener("blur", function() {
+  if (hexInputVisible) applyHexInput();
+});
+
+hexInput.addEventListener("keydown", function(e) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    applyHexInput();
+  }
+});
+
+// ---------- ПРИМЕНЕНИЕ ЦВЕТА ----------
 function pickBgColor(hex) {
   bgColor = hex;
   try { localStorage.setItem("catchme_bgcolor", hex); } catch(e) {}
 
-  // При выборе цвета — удаляем фото
   if (bgImage) {
     deleteBg().catch(function(){});
     if (bgImageURL) {
@@ -280,6 +426,8 @@ var game = {
     this.reset();
     this.mode = mode;
     this.state = PLAYING;
+    hideFileLabel();
+    hideHexInput();
   },
 
   end: function() {
@@ -319,7 +467,7 @@ var game = {
         if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) {
           if (b.id === "timed") this.start("timed");
           if (b.id === "endless") this.start("endless");
-          if (b.id === "settings") this.state = SETTINGS;
+          if (b.id === "settings") { this.state = SETTINGS; }
           return;
         }
       }
@@ -327,12 +475,55 @@ var game = {
     }
 
     if (this.state === SETTINGS) {
-      for (var s = 0; s < this.buttons.length; s++) {
-        var sb = this.buttons[s];
+      for (var k = 0; k < this.buttons.length; k++) {
+        var sb = this.buttons[k];
         if (px >= sb.x && px <= sb.x + sb.w && py >= sb.y && py <= sb.y + sb.h) {
-          if (sb.id === "back") this.state = MENU;
-          if (sb.id === "upload") pickBgImage();
+          if (sb.id === "bg") { this.state = SETTINGS_BG; return; }
+          if (sb.id === "back") { this.state = MENU; return; }
+        }
+      }
+      return;
+    }
+
+    if (this.state === SETTINGS_BG) {
+      // проверка градиента
+      if (window.__pickerGrad) {
+        var g = window.__pickerGrad;
+        if (px >= g.x && px <= g.x + g.w && py >= g.y && py <= g.y + g.h) {
+          picker.sat = Math.max(0, Math.min(1, (px - g.x) / g.w));
+          picker.val = 1 - Math.max(0, Math.min(1, (py - g.y) / g.h));
+          var rgb = hsvToRgb(picker.hue, picker.sat, picker.val);
+          pickBgColor(rgbToHex(rgb[0], rgb[1], rgb[2]));
           return;
+        }
+      }
+      // проверка ползунка яркости
+      if (window.__pickerBar) {
+        var bar = window.__pickerBar;
+        if (px >= bar.x && px <= bar.x + bar.w && py >= bar.y && py <= bar.y + bar.h) {
+          picker.val = 1 - Math.max(0, Math.min(1, (py - bar.y) / bar.h));
+          var rgb2 = hsvToRgb(picker.hue, picker.sat, picker.val);
+          pickBgColor(rgbToHex(rgb2[0], rgb2[1], rgb2[2]));
+          return;
+        }
+      }
+      // проверка кнопок
+      for (var m = 0; m < this.buttons.length; m++) {
+        var bb = this.buttons[m];
+        if (px >= bb.x && px <= bb.x + bb.w && py >= bb.y && py <= bb.y + bb.h) {
+          if (bb.id === "back") {
+            hideHexInput();
+            this.state = SETTINGS;
+            return;
+          }
+          if (bb.id === "hex") {
+            var hexBtn = bb;
+            showHexInput(hexBtn.x, hexBtn.y, hexBtn.w, hexBtn.h, bgColor || "#000000");
+            hexInput.focus();
+            hexInput.select();
+            return;
+          }
+          // upload — через label, не здесь
         }
       }
       return;
@@ -390,10 +581,14 @@ var game = {
     else if (this.state === PLAYING) this.drawPlaying();
     else if (this.state === GAME_OVER) this.drawGameOver();
     else if (this.state === SETTINGS) this.drawSettings();
+    else if (this.state === SETTINGS_BG) this.drawSettingsBg();
   },
 
   drawMenu: function() {
     this.buttons = [];
+    hideFileLabel();
+    hideHexInput();
+
     ctx.fillStyle = "#f0f0f0";
     ctx.font = "bold 52px Arial";
     ctx.textAlign = "center";
@@ -414,56 +609,164 @@ var game = {
     drawButtons(this.buttons);
   },
 
+  // ---- ЭКРАН НАСТРОЕК (главное меню настроек) ----
   drawSettings: function() {
     this.buttons = [];
+    hideFileLabel();
+    hideHexInput();
 
     ctx.fillStyle = "#f0f0f0";
     ctx.font = "bold 44px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("НАСТРОЙКИ", W / 2, H * 0.15);
+    ctx.fillText("НАСТРОЙКИ", W / 2, H * 0.20);
 
-    ctx.fillStyle = "#a0a0b0";
-    ctx.font = "22px Arial";
-    ctx.fillText("Фон игры", W / 2, H * 0.26);
+    var bw = Math.min(320, W - 60);
+    var bx = (W - bw) / 2;
 
-    // --- выбор цвета ---
-    ctx.fillStyle = "#c0c0d0";
-    ctx.font = "18px Arial";
-    ctx.fillText("Выберите цвет:", W / 2, H * 0.36);
+    var bBg = { x: bx, y: H * 0.35, w: bw, h: 60, text: "Фон", id: "bg" };
+    // здесь позже можно добавить: Звук, Сложность, Управление
+    var bBack = { x: bx, y: H * 0.35 + 200, w: bw, h: 60, text: "Назад", id: "back" };
+    this.buttons = [bBg, bBack];
+    drawButtons(this.buttons);
+  },
 
-    // цветовой квадрат
-    var sw = 80, sh = 60;
-    var sx = W / 2 - sw / 2;
-    var sy = H * 0.40;
+  // ---- ЭКРАН НАСТРОЙКИ ФОНА ----
+  drawSettingsBg: function() {
+    this.buttons = [];
+    hideFileLabel();
+
+    ctx.fillStyle = "#f0f0f0";
+    ctx.font = "bold 36px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("ФОН", W / 2, H * 0.06);
+
+    // ---------- ГРАДИЕНТ HSV ----------
+    // Рисуем пиксель за пикселем — используем offscreen canvas для скорости
+    var gradW = Math.min(W - 140, 400);
+    var gradH = Math.min(H * 0.30, 220);
+    var gradX = (W - gradW) / 2 - 20;
+    var gradY = H * 0.12;
+
+    if (!window.__gradCanvasCache || window.__gradCanvasCache.width !== gradW || window.__gradCanvasCache.height !== gradH) {
+      window.__gradCanvasCache = document.createElement("canvas");
+      window.__gradCanvasCache.width = gradW;
+      window.__gradCanvasCache.height = gradH;
+      var gctx = window.__gradCanvasCache.getContext("2d");
+      var img = gctx.createImageData(gradW, gradH);
+      var data = img.data;
+      for (var yy = 0; yy < gradH; yy++) {
+        for (var xx = 0; xx < gradW; xx++) {
+          var s = xx / gradW;
+          var v = 1 - yy / gradH;
+          var rgb = hsvToRgb(picker.hue, s, v);
+          var idx = (yy * gradW + xx) * 4;
+          data[idx] = rgb[0];
+          data[idx + 1] = rgb[1];
+          data[idx + 2] = rgb[2];
+          data[idx + 3] = 255;
+        }
+      }
+      gctx.putImageData(img, 0, 0);
+    }
+    ctx.drawImage(window.__gradCanvasCache, gradX, gradY, gradW, gradH);
 
     // рамка
     ctx.strokeStyle = "#606070";
     ctx.lineWidth = 2;
-    ctx.strokeRect(sx - 2, sy - 2, sw + 4, sh + 4);
+    ctx.strokeRect(gradX, gradY, gradW, gradH);
 
-    // сам цвет
-    ctx.fillStyle = bgColor || "#0a0a0f";
-    ctx.fillRect(sx, sy, sw, sh);
+    // маркер выбранного цвета на градиенте
+    var markX = gradX + picker.sat * gradW;
+    var markY = gradY + (1 - picker.val) * gradH;
+    ctx.beginPath();
+    ctx.arc(markX, markY, 9, 0, Math.PI * 2);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(markX, markY, 9, 0, Math.PI * 2);
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
-    // сохраняем координаты для клика
-    window.__colorSwatch = { x: sx, y: sy, w: sw, h: sh };
+    window.__pickerGrad = { x: gradX, y: gradY, w: gradW, h: gradH };
 
-    // --- или фото ---
-    ctx.fillStyle = "#a0a0b0";
-    ctx.font = "18px Arial";
-    ctx.fillText("или", W / 2, H * 0.55);
+    // ---------- ПОЛЗУНОК ЯРКОСТИ ----------
+    var barW = 40;
+    var barH = gradH;
+    var barX = gradX + gradW + 20;
+    var barY = gradY;
 
-    var bw = Math.min(300, W - 60);
-    var bx = (W - bw) / 2;
+    // градиент яркости — от чёрного к полному цвету
+    var grad = ctx.createLinearGradient(0, barY, 0, barY + barH);
+    var topRgb = hsvToRgb(picker.hue, picker.sat, 1);
+    grad.addColorStop(0, "rgb(" + topRgb[0] + "," + topRgb[1] + "," + topRgb[2] + ")");
+    grad.addColorStop(1, "#000000");
+    ctx.fillStyle = grad;
+    ctx.fillRect(barX, barY, barW, barH);
 
-    var bUp = { x: bx, y: H * 0.60, w: bw, h: 60, text: "Загрузить фото", id: "upload" };
-    var bBack = { x: bx, y: H * 0.60 + 90, w: bw, h: 60, text: "Назад", id: "back" };
-    this.buttons = [bUp, bBack];
+    ctx.strokeStyle = "#606070";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(barX, barY, barW, barH);
+
+    // маркер яркости
+    var valY = barY + (1 - picker.val) * barH;
+    ctx.beginPath();
+    ctx.moveTo(barX - 6, valY);
+    ctx.lineTo(barX, valY - 6);
+    ctx.lineTo(barX + barW + 6, valY - 6);
+    ctx.lineTo(barX + barW, valY);
+    ctx.lineTo(barX + barW + 6, valY + 6);
+    ctx.lineTo(barX, valY + 6);
+    ctx.closePath();
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    window.__pickerBar = { x: barX, y: barY, w: barW, h: barH };
+
+    // ---------- ПРЕВЬЮ ТЕКУЩЕГО ЦВЕТА ----------
+    var previewSize = 50;
+    var previewX = 20;
+    var previewY = gradY;
+    ctx.fillStyle = bgColor || "#000000";
+    ctx.fillRect(previewX, previewY, previewSize, previewSize);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(previewX, previewY, previewSize, previewSize);
+
+    // ---------- ПОЛЕ HEX + КНОПКА ----------
+    var hexBtnW = Math.min(W - 80, 260);
+    var hexBtnH = 50;
+    var hexBtnX = (W - hexBtnW) / 2;
+    var hexBtnY = gradY + gradH + 20;
+
+    var bHex = { x: hexBtnX, y: hexBtnY, w: hexBtnW, h: hexBtnH,
+                 text: "Ввести HEX: " + (bgColor || "#000000"), id: "hex" };
+
+    // ---------- КНОПКА ФОТО ----------
+    var bUp = { x: hexBtnX, y: hexBtnY + 65, w: hexBtnW, h: 55,
+                text: "Загрузить фото", id: "upload" };
+
+    // ---------- КНОПКА НАЗАД ----------
+    var bBack = { x: hexBtnX, y: hexBtnY + 130, w: hexBtnW, h: 55,
+                  text: "Назад", id: "back" };
+
+    this.buttons = [bHex, bUp, bBack];
     drawButtons(this.buttons);
+
+    // невидимый label поверх кнопки "Загрузить фото"
+    showFileLabel(bUp.x, bUp.y, bUp.w, bUp.h);
   },
 
   drawPlaying: function() {
+    hideFileLabel();
+    hideHexInput();
+
     for (var i = 0; i < this.fakeSquares.length; i++) this.fakeSquares[i].draw();
     this.square.draw();
 
@@ -483,6 +786,9 @@ var game = {
 
   drawGameOver: function() {
     this.buttons = [];
+    hideFileLabel();
+    hideHexInput();
+
     ctx.fillStyle = "#f0f0f0";
     ctx.font = "bold 48px Arial";
     ctx.textAlign = "center";
@@ -527,24 +833,12 @@ function drawButtons(list) {
     ctx.strokeRect(b.x, b.y, b.w, b.h);
 
     ctx.fillStyle = "#f0f0f0";
-    ctx.font = "bold 20px Arial";
+    ctx.font = "bold 18px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(b.text, b.x + b.w / 2, b.y + b.h / 2);
   }
 }
-
-// ---------- ЦВЕТОВАЯ ПАЛИТРА (скрытый input) ----------
-var colorInput = document.createElement("input");
-colorInput.type = "color";
-colorInput.value = bgColor || "#0a0a0f";
-colorInput.style.position = "absolute";
-colorInput.style.left = "-9999px";
-document.body.appendChild(colorInput);
-
-colorInput.addEventListener("input", function(e) {
-  pickBgColor(e.target.value);
-});
 
 // ---------- ВВОД ----------
 function posFromEvent(e) {
@@ -553,6 +847,9 @@ function posFromEvent(e) {
   if (e.touches && e.touches.length) {
     cx = e.touches[0].clientX;
     cy = e.touches[0].clientY;
+  } else if (e.changedTouches && e.changedTouches.length) {
+    cx = e.changedTouches[0].clientX;
+    cy = e.changedTouches[0].clientY;
   } else {
     cx = e.clientX;
     cy = e.clientY;
@@ -568,17 +865,6 @@ canvas.addEventListener("mousemove", function(e) {
 
 canvas.addEventListener("click", function(e) {
   var p = posFromEvent(e);
-
-  // если открыт экран настроек — проверить клик по цветовому квадрату
-  if (game.state === SETTINGS && window.__colorSwatch) {
-    var sw = window.__colorSwatch;
-    if (p.x >= sw.x && p.x <= sw.x + sw.w &&
-        p.y >= sw.y && p.y <= sw.y + sw.h) {
-      colorInput.click();
-      return;
-    }
-  }
-
   game.click(p.x, p.y);
 });
 
@@ -587,16 +873,6 @@ canvas.addEventListener("touchstart", function(e) {
   var p = posFromEvent(e);
   game.mouse.x = p.x;
   game.mouse.y = p.y;
-
-  if (game.state === SETTINGS && window.__colorSwatch) {
-    var sw = window.__colorSwatch;
-    if (p.x >= sw.x && p.x <= sw.x + sw.w &&
-        p.y >= sw.y && p.y <= sw.y + sw.h) {
-      colorInput.click();
-      return;
-    }
-  }
-
   game.click(p.x, p.y);
 }, { passive: false });
 
