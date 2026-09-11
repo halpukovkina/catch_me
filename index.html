@@ -1156,12 +1156,30 @@ function pickSquareRandom() {
 }
 
 function overlapsExitZone(x, y, size) {
-  if (!exitButtonZone) return false;
-  var half = size/2;
-  var l = x-half, r = x+half, t = y-half, b = y+half;
-  var eb = exitButtonZone;
-  var pad = 8;
-  return !(r < eb.x-pad || l > eb.x+eb.w+pad || b < eb.y-pad || t > eb.y+eb.h+pad);
+  // Зона кнопки "✕" — фиксированная, с большим запасом
+  var EXIT_SIZE = 48;
+  var EXIT_PAD = 16;
+  var ebX = W - EXIT_SIZE - EXIT_PAD;
+  var ebY = EXIT_PAD;
+  var ebW = EXIT_SIZE;
+  var ebH = EXIT_SIZE;
+
+  // Дополнительный отступ вокруг зоны — квадратик не должен подходить вплотную
+  var SAFE_PAD = 20;
+
+  var half = size / 2;
+  var l = x - half;
+  var r = x + half;
+  var t = y - half;
+  var b = y + half;
+
+  // Проверяем пересечение прямоугольников с учётом SAFE_PAD
+  var zoneL = ebX - SAFE_PAD;
+  var zoneR = ebX + ebW + SAFE_PAD;
+  var zoneT = ebY - SAFE_PAD;
+  var zoneB = ebY + ebH + SAFE_PAD;
+
+  return !(r < zoneL || l > zoneR || b < zoneT || t > zoneB);
 }
 
 // ---------- ЧАСТИЦЫ ----------
@@ -1506,8 +1524,17 @@ function drawParticles() {
 function Square() {
   var d = getDifficulty();
   this.baseSize = d.sizeStart;
-  this.x = Math.random() * (W - 100) + 50;
-  this.y = Math.random() * (H - 100) + 50;
+    // генерируем позицию — гарантированно вне зоны кнопки "✕"
+  var maxAttempts = 50;
+  var posX, posY;
+  do {
+    posX = Math.random() * (W - 100) + 50;
+    posY = Math.random() * (H - 100) + 50;
+    maxAttempts--;
+  } while (maxAttempts > 0 && overlapsExitZone(posX, posY, d.sizeStart));
+
+  this.x = posX;
+  this.y = posY;
   if (squareMode === "color" && squareColor) {
     this.color = squareColor;
   } else {
@@ -1702,7 +1729,7 @@ Square.prototype.draw = function() {
     ctx.restore();
   }
 
-  var useImage = (squareMode === "image" && sqImage && !this.fake);
+  var useImage = (squareMode === "image" && sqImage);
 
   if (useImage) {
     ctx.drawImage(sqImage, padX, padY, padSize, padSize);
@@ -2837,7 +2864,7 @@ var game = {
 
     ctx.textAlign = "left";
     ctx.font = "bold 16px " + FONT_FAMILY;
-    ctx.fillStyle = "#f0c050";
+    ctx.fillStyle = "#ffffff";
     ctx.fillText("ОБЩЕЕ", leftX, y);
     y += lineH + 4;
 
@@ -2853,7 +2880,7 @@ var game = {
     y += 10;
 
     ctx.font = "bold 16px " + FONT_FAMILY;
-    ctx.fillStyle = "#f0c050";
+    ctx.fillStyle = "#ffffff";
     ctx.fillText("СЕГОДНЯ (" + statsToday.date + ")", leftX, y);
     y += lineH + 4;
 
@@ -2873,7 +2900,7 @@ var game = {
     y += lineH + 4;
 
     ctx.font = "13px " + FONT_FAMILY;
-    ctx.fillStyle = "#f0f0f0";
+    ctx.fillStyle = "#ffffff";
     for (var mi = 0; mi < MODES.length; mi++) {
       var m = MODES[mi];
       var ms = getModeStats(m.id);
