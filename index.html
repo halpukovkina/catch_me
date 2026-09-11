@@ -1894,6 +1894,8 @@ var game = {
     updateMenuSquares(dt);
     updateMenuPopups(dt);
     updateParticles(dt);
+    updateSignatureForState();
+    updateSignatureScroll(dt);
     updateToast(dt);
 
     if (this.state === GAME_OVER || this.state === ENDLESS_QUIT) {
@@ -2325,6 +2327,8 @@ var game = {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("ПОЙМАЙ МЕНЯ", W / 2, H * 0.18);
+    drawMenuSquares();
+    drawMenuPopups();
     ctx.restore();
 
     var bw = Math.min(320, W - 60);
