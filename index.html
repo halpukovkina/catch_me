@@ -69,52 +69,219 @@ var GAME_OVER = "game_over";
 var SETTINGS = "settings";
 var SETTINGS_BG = "settings_bg";
 var SETTINGS_SQUARE = "settings_square";
+var SETTINGS_SOUND = "settings_sound";
 
-// ---------- ЦВЕТА КВАДРАТИКА (по умолчанию) ----------
 var COLORS = ["#ff5050", "#50ff78", "#50a0ff", "#ffdc50", "#dc50ff", "#50fff0"];
 
-// ---------- ПРОГРЕССИЯ ----------
-// score   — порог срабатывания
-// speed   — базовая скорость
-// behavior — поведение квадратика
 var LEVELS = [
-  { score: 0,  speed: 1.2, behavior: "run" },       // 0-5: обычное движение
-  { score: 6,  speed: 1.6, behavior: "boost" },     // 6-11: периодическое ускорение
-  { score: 12, speed: 1.8, behavior: "disguise" },  // 12-19: смена цвета
-  { score: 20, speed: 2.0, behavior: "teleport" },  // 20-25: телепорт (с кулдауном)
-  { score: 26, speed: 2.2, behavior: "multiply" },  // 26-31: ложные квадраты
-  { score: 32, speed: 2.4, behavior: "hunt" }       // 32+: погоня
+  { score: 0,  speed: 1.2, behavior: "run" },
+  { score: 6,  speed: 1.6, behavior: "boost" },
+  { score: 12, speed: 1.8, behavior: "disguise" },
+  { score: 20, speed: 2.0, behavior: "teleport" },
+  { score: 26, speed: 2.2, behavior: "multiply" },
+  { score: 32, speed: 2.4, behavior: "hunt" }
 ];
 
-// ---------- ТЕЛЕПОРТ: настройки ----------
-var TELEPORT_RADIUS = 70;         // если курсор ближе — телепорт
-var TELEPORT_COOLDOWN = 2.5;      // задержка между телепортами (сек)
-var TELEPORT_MIN_DIST = 200;      // минимум от курсора при телепорте
+var TELEPORT_RADIUS = 70;
+var TELEPORT_COOLDOWN = 2.5;
+var TELEPORT_MIN_DIST = 200;
 
-// ---------- УСКОРЕНИЕ (boost): настройки ----------
-var BOOST_INTERVAL = 2.0;         // раз в сколько секунд давать буст
-var BOOST_DURATION = 0.6;         // сколько длится буст
-var BOOST_MULTIPLIER = 2.0;       // во сколько раз быстрее
+var BOOST_INTERVAL = 2.0;
+var BOOST_DURATION = 0.6;
+var BOOST_MULTIPLIER = 2.0;
 
-// ---------- РАЗМЕР КВАДРАТИКА ----------
 var SIZE_START = 50;
 var SIZE_MIN = 14;
 var SIZE_STEP = 2.5;
 
-// ---------- ОБЛАСТЬ КНОПКИ «✕» ----------
-// Квадратик не может зайти в этот прямоугольник.
-// Заполняется при отрисовке drawPlaying.
 var exitButtonZone = null;
 
-// ---------- ХРАНИЛИЩЕ ЦВЕТА ФОНА ----------
+// ---------- ЗВУК ----------
+var soundEnabled = true;
+try {
+  var savedSound = localStorage.getItem("catchme_sound");
+  if (savedSound !== null) soundEnabled = (savedSound === "1");
+} catch(e) {}
+
+var fxVolume = 0.7;
+try {
+  var sv = localStorage.getItem("catchme_fxvol");
+  if (sv !== null) fxVolume = parseFloat(sv);
+} catch(e) {}
+
+var musicVolume = 0.5;
+try {
+  var mv = localStorage.getItem("catchme_musicvol");
+  if (mv !== null) musicVolume = parseFloat(mv);
+} catch(e) {}
+
+var audioCtx = null;
+var audioReady = false;
+
+function initAudio() {
+  if (audioReady) return;
+  try {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    audioCtx = new AC();
+    audioReady = true;
+  } catch(e) {}
+}
+
+function unlockAudio() {
+  if (!audioReady) initAudio();
+  if (audioCtx && audioCtx.state === "suspended") {
+    audioCtx.resume().catch(function(){});
+  }
+  // запускаем музыку при первом действии
+  if (audioReady && soundEnabled && !musicPlaying) {
+    startMusic();
+  }
+}
+
+// ---- эффекты ----
+function playTone(freq, duration, type, volumeScale, freqEnd, isMusic) {
+  if (!soundEnabled) return;
+  var vol = isMusic ? musicVolume : fxVolume;
+  if (vol <= 0) return;
+  if (!audioReady) initAudio();
+  if (!audioCtx) return;
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume().catch(function(){});
+  }
+  try {
+    var now = audioCtx.currentTime;
+    var osc = audioCtx.createOscillator();
+    var gain = audioCtx.createGain();
+    osc.type = type || "sine";
+    osc.frequency.setValueAtTime(freq, now);
+    if (freqEnd !== undefined) {
+      osc.frequency.exponentialRampToValueAtTime(Math.max(1, freqEnd), now + duration);
+    }
+    var peak = vol * (volumeScale || 1) * 0.3;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(peak, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(now);
+    osc.stop(now + duration + 0.02);
+  } catch(e) {}
+}
+
+function soundHit(score) {
+  var baseFreq = 700 + Math.min(score * 40, 800);
+  playTone(baseFreq, 0.08, "square", 0.8);
+}
+function soundGameOver() {
+  playTone(500, 0.5, "sine", 0.9, 120);
+}
+function soundStart() {
+  playTone(400, 0.15, "sine", 0.7, 800);
+}
+function soundClick() {
+  playTone(900, 0.04, "square", 0.4);
+}
+function soundTeleport() {
+  playTone(300, 0.12, "sine", 0.5, 1200);
+}
+function soundBoost() {
+  playTone(1100, 0.06, "triangle", 0.5);
+}
+
+// ---- музыка ----
+// простая мелодия в стиле пиксельных игр
+var musicPlaying = false;
+var musicTimer = null;
+var musicStep = 0;
+
+// ноты в Гц: C5, E5, G5, C6, G5, E5, D5, G5
+var MELODY = [
+  523.25, 659.25, 783.99, 1046.50,
+  783.99, 659.25, 587.33, 783.99
+];
+
+// бас: C3, C3, A2, A2 — на каждые 2 ноты мелодии
+var BASS = [
+  130.81, 130.81, 110.00, 110.00
+];
+
+var MELODY_TEMPO = 320; // мс между нотами
+
+function playMusicNote() {
+  if (!soundEnabled || musicVolume <= 0 || !audioCtx) return;
+
+  var now = audioCtx.currentTime;
+
+  // мелодия
+  var f = MELODY[musicStep % MELODY.length];
+  try {
+    var osc = audioCtx.createOscillator();
+    var gain = audioCtx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(f, now);
+    var peak = musicVolume * 0.08;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(peak, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(now);
+    osc.stop(now + 0.28);
+  } catch(e) {}
+
+  // бас — каждые 2 шага
+  if (musicStep % 2 === 0) {
+    var bassF = BASS[Math.floor(musicStep / 2) % BASS.length];
+    try {
+      var osc2 = audioCtx.createOscillator();
+      var gain2 = audioCtx.createGain();
+      osc2.type = "triangle";
+      osc2.frequency.setValueAtTime(bassF, now);
+      var peak2 = musicVolume * 0.12;
+      gain2.gain.setValueAtTime(0.0001, now);
+      gain2.gain.exponentialRampToValueAtTime(peak2, now + 0.01);
+      gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+      osc2.connect(gain2);
+      gain2.connect(audioCtx.destination);
+      osc2.start(now);
+      osc2.stop(now + 0.55);
+    } catch(e) {}
+  }
+
+  musicStep++;
+}
+
+function startMusic() {
+  if (musicPlaying) return;
+  if (!audioReady) initAudio();
+  if (!audioCtx) return;
+  if (!soundEnabled || musicVolume <= 0) return;
+  musicPlaying = true;
+  playMusicNote();
+  musicTimer = setInterval(playMusicNote, MELODY_TEMPO);
+}
+
+function stopMusic() {
+  if (!musicPlaying) return;
+  musicPlaying = false;
+  if (musicTimer) { clearInterval(musicTimer); musicTimer = null; }
+}
+
+function restartMusic() {
+  stopMusic();
+  if (soundEnabled && musicVolume > 0 && audioReady) {
+    startMusic();
+  }
+}
+
+// ---------- ХРАНИЛИЩА ----------
 var bgColor = null;
 try { bgColor = localStorage.getItem("catchme_bgcolor") || null; } catch(e) {}
 
-// ---------- ХРАНИЛИЩЕ ЦВЕТА КВАДРАТИКА ----------
 var squareColor = null;
 try { squareColor = localStorage.getItem("catchme_squarecolor") || null; } catch(e) {}
 
-// ---------- HSV / RGB / HEX ----------
 function hsvToRgb(h, s, v) {
   var c = v * s;
   var x = c * (1 - Math.abs(((h / 60) % 2) - 1));
@@ -126,7 +293,7 @@ function hsvToRgb(h, s, v) {
   else if (h < 240) { r = 0; g = x; b = c; }
   else if (h < 300) { r = x; g = 0; b = c; }
   else              { r = c; g = 0; b = x; }
-  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+  return [Math.round((r+m)*255), Math.round((g+m)*255), Math.round((b+m)*255)];
 }
 
 function rgbToHex(r, g, b) {
@@ -136,31 +303,28 @@ function rgbToHex(r, g, b) {
 
 function hexToRgb(hex) {
   hex = hex.replace("#", "");
-  if (hex.length === 3) {
-    hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
-  }
+  if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
   if (hex.length !== 6) return null;
   var num = parseInt(hex, 16);
   if (isNaN(num)) return null;
-  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+  return [(num>>16)&255, (num>>8)&255, num&255];
 }
 
 function initPickerFromColorObj(picker, hex) {
   if (!hex) return;
   var rgb = hexToRgb(hex);
   if (!rgb) return;
-  var r = rgb[0] / 255, g = rgb[1] / 255, b = rgb[2] / 255;
-  var max = Math.max(r, g, b), min = Math.min(r, g, b);
-  var d = max - min;
-  var h = 0;
+  var r = rgb[0]/255, g = rgb[1]/255, b = rgb[2]/255;
+  var max = Math.max(r,g,b), min = Math.min(r,g,b);
+  var d = max - min, h = 0;
   if (d !== 0) {
-    if (max === r) h = 60 * (((g - b) / d) % 6);
-    else if (max === g) h = 60 * ((b - r) / d + 2);
-    else h = 60 * ((r - g) / d + 4);
+    if (max === r) h = 60 * (((g-b)/d) % 6);
+    else if (max === g) h = 60 * ((b-r)/d + 2);
+    else h = 60 * ((r-g)/d + 4);
   }
   if (h < 0) h += 360;
   picker.hue = h;
-  picker.sat = max === 0 ? 0 : d / max;
+  picker.sat = max === 0 ? 0 : d/max;
   picker.val = max;
 }
 
@@ -170,11 +334,9 @@ initPickerFromColorObj(picker, bgColor);
 var squarePicker = { hue: 0, sat: 1, val: 1 };
 initPickerFromColorObj(squarePicker, squareColor);
 
-// ---------- ХРАНИЛИЩЕ ФОТО (IndexedDB) ----------
-var bgImage = null;
-var bgImageURL = null;
-var sqImage = null;
-var sqImageURL = null;
+// ---------- IndexedDB ----------
+var bgImage = null, bgImageURL = null;
+var sqImage = null, sqImageURL = null;
 
 function openDB() {
   return new Promise(function(resolve, reject) {
@@ -188,36 +350,33 @@ function openDB() {
     req.onerror = function(e) { reject(e.target.error); };
   });
 }
-
-function saveToStore(storeName, blob) {
+function saveToStore(s, blob) {
   return openDB().then(function(db) {
-    return new Promise(function(resolve, reject) {
-      var tx = db.transaction(storeName, "readwrite");
-      tx.objectStore(storeName).put(blob, "image");
-      tx.oncomplete = function() { resolve(); };
-      tx.onerror = function(e) { reject(e.target.error); };
+    return new Promise(function(res, rej) {
+      var tx = db.transaction(s, "readwrite");
+      tx.objectStore(s).put(blob, "image");
+      tx.oncomplete = function() { res(); };
+      tx.onerror = function(e) { rej(e.target.error); };
     });
   });
 }
-
-function loadFromStore(storeName) {
+function loadFromStore(s) {
   return openDB().then(function(db) {
-    return new Promise(function(resolve, reject) {
-      var tx = db.transaction(storeName, "readonly");
-      var req = tx.objectStore(storeName).get("image");
-      req.onsuccess = function() { resolve(req.result || null); };
-      req.onerror = function(e) { reject(e.target.error); };
+    return new Promise(function(res, rej) {
+      var tx = db.transaction(s, "readonly");
+      var req = tx.objectStore(s).get("image");
+      req.onsuccess = function() { res(req.result || null); };
+      req.onerror = function(e) { rej(e.target.error); };
     });
   });
 }
-
-function deleteFromStore(storeName) {
+function deleteFromStore(s) {
   return openDB().then(function(db) {
-    return new Promise(function(resolve, reject) {
-      var tx = db.transaction(storeName, "readwrite");
-      tx.objectStore(storeName).delete("image");
-      tx.oncomplete = function() { resolve(); };
-      tx.onerror = function(e) { reject(e.target.error); };
+    return new Promise(function(res, rej) {
+      var tx = db.transaction(s, "readwrite");
+      tx.objectStore(s).delete("image");
+      tx.oncomplete = function() { res(); };
+      tx.onerror = function(e) { rej(e.target.error); };
     });
   });
 }
@@ -229,7 +388,6 @@ function applyBgFromBlob(blob) {
   img.onload = function() { bgImage = img; };
   img.src = bgImageURL;
 }
-
 function applySqFromBlob(blob) {
   if (sqImageURL) { URL.revokeObjectURL(sqImageURL); sqImageURL = null; }
   sqImageURL = URL.createObjectURL(blob);
@@ -237,20 +395,18 @@ function applySqFromBlob(blob) {
   img.onload = function() { sqImage = img; };
   img.src = sqImageURL;
 }
-
 function initBg() {
   loadFromStore("bg").then(function(blob) {
     if (blob) applyBgFromBlob(blob);
-  }).catch(function(e) { console.log("bg load error", e); });
+  }).catch(function(e){});
 }
-
 function initSqImage() {
   loadFromStore("square").then(function(blob) {
     if (blob) applySqFromBlob(blob);
-  }).catch(function(e) { console.log("sq load error", e); });
+  }).catch(function(e){});
 }
 
-// ---------- ОБРАБОТКА ФАЙЛОВ ----------
+// ---------- ФАЙЛЫ ----------
 var fileInputBg = document.getElementById("fileInputBg");
 var fileLabelBg = document.getElementById("fileLabelBg");
 var fileInputSq = document.getElementById("fileInputSq");
@@ -259,19 +415,16 @@ var fileLabelSq = document.getElementById("fileLabelSq");
 fileInputBg.addEventListener("change", function(e) {
   var file = e.target.files && e.target.files[0];
   if (!file) { hideFileLabelBg(); return; }
-  if (file.size > 15 * 1024 * 1024) {
+  if (file.size > 15*1024*1024) {
     alert("Фото слишком большое. Выберите до 15 МБ.");
     fileInputBg.value = ""; hideFileLabelBg(); return;
   }
   bgColor = null;
   try { localStorage.removeItem("catchme_bgcolor"); } catch(err) {}
   saveToStore("bg", file).then(function() {
-    applyBgFromBlob(file);
-    hideFileLabelBg();
+    applyBgFromBlob(file); hideFileLabelBg();
   }).catch(function(err) {
-    console.log("bg save error", err);
-    alert("Не удалось сохранить фото.");
-    hideFileLabelBg();
+    alert("Не удалось сохранить фото."); hideFileLabelBg();
   });
   fileInputBg.value = "";
 });
@@ -279,68 +432,43 @@ fileInputBg.addEventListener("change", function(e) {
 fileInputSq.addEventListener("change", function(e) {
   var file = e.target.files && e.target.files[0];
   if (!file) { hideFileLabelSq(); return; }
-  if (file.size > 15 * 1024 * 1024) {
+  if (file.size > 15*1024*1024) {
     alert("Фото слишком большое. Выберите до 15 МБ.");
     fileInputSq.value = ""; hideFileLabelSq(); return;
   }
   squareColor = null;
   try { localStorage.removeItem("catchme_squarecolor"); } catch(err) {}
   saveToStore("square", file).then(function() {
-    applySqFromBlob(file);
-    hideFileLabelSq();
+    applySqFromBlob(file); hideFileLabelSq();
   }).catch(function(err) {
-    console.log("sq save error", err);
-    alert("Не удалось сохранить фото.");
-    hideFileLabelSq();
+    alert("Не удалось сохранить фото."); hideFileLabelSq();
   });
   fileInputSq.value = "";
 });
 
-function showFileLabelBg(x, y, w, h) {
-  fileLabelBg.style.display = "block";
-  fileLabelBg.style.left = x + "px";
-  fileLabelBg.style.top = y + "px";
-  fileLabelBg.style.width = w + "px";
-  fileLabelBg.style.height = h + "px";
-}
-function hideFileLabelBg() { fileLabelBg.style.display = "none"; }
+function showFileLabelBg(x,y,w,h){ fileLabelBg.style.display="block"; fileLabelBg.style.left=x+"px"; fileLabelBg.style.top=y+"px"; fileLabelBg.style.width=w+"px"; fileLabelBg.style.height=h+"px"; }
+function hideFileLabelBg(){ fileLabelBg.style.display="none"; }
+function showFileLabelSq(x,y,w,h){ fileLabelSq.style.display="block"; fileLabelSq.style.left=x+"px"; fileLabelSq.style.top=y+"px"; fileLabelSq.style.width=w+"px"; fileLabelSq.style.height=h+"px"; }
+function hideFileLabelSq(){ fileLabelSq.style.display="none"; }
+function hideFileLabel(){ hideFileLabelBg(); hideFileLabelSq(); }
 
-function showFileLabelSq(x, y, w, h) {
-  fileLabelSq.style.display = "block";
-  fileLabelSq.style.left = x + "px";
-  fileLabelSq.style.top = y + "px";
-  fileLabelSq.style.width = w + "px";
-  fileLabelSq.style.height = h + "px";
-}
-function hideFileLabelSq() { fileLabelSq.style.display = "none"; }
-
-function hideFileLabel() {
-  hideFileLabelBg();
-  hideFileLabelSq();
-}
-
-// ---------- ОБРАБОТКА HEX ----------
+// ---------- HEX ----------
 var hexInput = document.getElementById("hexInput");
 var hexInputVisible = false;
 var hexTarget = "bg";
 
-function showHexInput(x, y, w, h, currentHex, target) {
+function showHexInput(x,y,w,h,currentHex,target) {
   hexInput.style.display = "block";
-  hexInput.style.left = x + "px";
-  hexInput.style.top = y + "px";
-  hexInput.style.width = w + "px";
-  hexInput.style.height = h + "px";
+  hexInput.style.left = x+"px"; hexInput.style.top = y+"px";
+  hexInput.style.width = w+"px"; hexInput.style.height = h+"px";
   hexInput.value = currentHex || "#000000";
-  hexInputVisible = true;
-  hexTarget = target || "bg";
+  hexInputVisible = true; hexTarget = target || "bg";
 }
-
 function hideHexInput() {
   hexInput.style.display = "none";
   hexInputVisible = false;
   hexInput.blur();
 }
-
 function applyHexInput() {
   var val = hexInput.value.trim();
   if (val.length > 0 && val[0] !== "#") val = "#" + val;
@@ -358,16 +486,11 @@ function applyHexInput() {
   hexTarget = "bg";
   hideHexInput();
 }
-
 hexInput.addEventListener("blur", function() {
   if (hexInputVisible) applyHexInput();
 });
-
 hexInput.addEventListener("keydown", function(e) {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    applyHexInput();
-  }
+  if (e.key === "Enter") { e.preventDefault(); applyHexInput(); }
 });
 
 function pickBgColor(hex) {
@@ -379,7 +502,6 @@ function pickBgColor(hex) {
     bgImage = null;
   }
 }
-
 function pickSquareColor(hex) {
   squareColor = hex;
   try { localStorage.setItem("catchme_squarecolor", hex); } catch(e) {}
@@ -390,21 +512,13 @@ function pickSquareColor(hex) {
   }
 }
 
-// ---------- ПРОВЕРКА: НЕ В ЗОНЕ ЛИ КНОПКИ ----------
-// Возвращает true, если точка (x, y) с заданным размером
-// попадает в зону кнопки выхода
 function overlapsExitZone(x, y, size) {
   if (!exitButtonZone) return false;
-  var half = size / 2;
-  var left = x - half;
-  var right = x + half;
-  var top = y - half;
-  var bottom = y + half;
+  var half = size/2;
+  var l = x-half, r = x+half, t = y-half, b = y+half;
   var eb = exitButtonZone;
-  // добавляем небольшой отступ, чтобы квадратик не касался кнопки вплотную
   var pad = 8;
-  return !(right < eb.x - pad || left > eb.x + eb.w + pad ||
-           bottom < eb.y - pad || top > eb.y + eb.h + pad);
+  return !(r < eb.x-pad || l > eb.x+eb.w+pad || b < eb.y-pad || t > eb.y+eb.h+pad);
 }
 
 // ---------- КВАДРАТИК ----------
@@ -415,23 +529,16 @@ function Square() {
   this.color = squareColor || COLORS[Math.floor(Math.random() * COLORS.length)];
   this.speed = 2.0;
   this.behavior = "run";
-  this.dashTimer = 0;
-  this.dashDx = 0;
-  this.dashDy = 0;
-  this.disguiseTimer = 0;
   this.huntTimer = 0;
   this.fake = false;
-
-  // телепорт
   this.teleportCooldown = 0;
-
-  // ускорение
   this.boostTimer = BOOST_INTERVAL;
   this.boostActive = 0;
+  this.disguiseTimer = 60;
 }
 
 Square.prototype.update = function(mx, my, score, dt) {
-  if (!dt) dt = 1 / 60;
+  if (!dt) dt = 1/60;
 
   var current = LEVELS[0];
   for (var i = 0; i < LEVELS.length; i++) {
@@ -440,23 +547,19 @@ Square.prototype.update = function(mx, my, score, dt) {
   this.speed = current.speed;
   this.behavior = this.fake ? "run" : current.behavior;
 
-  // размер
   if (!this.fake) {
     this.size = Math.max(SIZE_MIN, SIZE_START - score * SIZE_STEP);
   }
 
-  // кулдаун телепорта
-  if (this.teleportCooldown > 0) {
-    this.teleportCooldown -= dt;
-  }
+  if (this.teleportCooldown > 0) this.teleportCooldown -= dt;
 
-  // буст
   var boostFactor = 1.0;
   if (this.behavior === "boost") {
     this.boostTimer -= dt;
     if (this.boostTimer <= 0 && this.boostActive <= 0) {
       this.boostActive = BOOST_DURATION;
       this.boostTimer = BOOST_INTERVAL;
+      if (!this.fake) soundBoost();
     }
     if (this.boostActive > 0) {
       this.boostActive -= dt;
@@ -466,7 +569,7 @@ Square.prototype.update = function(mx, my, score, dt) {
 
   var dx = this.x - mx;
   var dy = this.y - my;
-  var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+  var dist = Math.sqrt(dx*dx + dy*dy) || 1;
   dx /= dist; dy /= dist;
 
   var moveX = 0, moveY = 0;
@@ -474,15 +577,12 @@ Square.prototype.update = function(mx, my, score, dt) {
   if (this.behavior === "run" || this.behavior === "boost" ||
       this.behavior === "disguise" || this.behavior === "multiply" ||
       this.behavior === "teleport") {
-    // базовое движение — от курсора
     moveX = dx * this.speed * boostFactor;
     moveY = dy * this.speed * boostFactor;
 
-    // телепорт — только для поведения "teleport"
     if (this.behavior === "teleport" &&
         this.teleportCooldown <= 0 &&
         dist < TELEPORT_RADIUS) {
-      // находим новую точку ПОДАЛЬШЕ от курсора
       var newX, newY, attempts = 0;
       do {
         newX = Math.random() * (W - 100) + 50;
@@ -490,16 +590,15 @@ Square.prototype.update = function(mx, my, score, dt) {
         attempts++;
       } while (
         attempts < 20 &&
-        (Math.sqrt((newX - mx) * (newX - mx) + (newY - my) * (newY - my)) < TELEPORT_MIN_DIST ||
+        (Math.sqrt((newX-mx)*(newX-mx)+(newY-my)*(newY-my)) < TELEPORT_MIN_DIST ||
          overlapsExitZone(newX, newY, this.size))
       );
-      this.x = newX;
-      this.y = newY;
+      this.x = newX; this.y = newY;
       this.teleportCooldown = TELEPORT_COOLDOWN;
+      if (!this.fake) soundTeleport();
       return;
     }
 
-    // смена цвета (disguise)
     if (this.behavior === "disguise") {
       this.disguiseTimer--;
       if (this.disguiseTimer <= 0) {
@@ -521,59 +620,73 @@ Square.prototype.update = function(mx, my, score, dt) {
     }
   }
 
-  // пробуем сдвинуться, но отскакиваем от кнопки
   var newX = this.x + moveX;
   var newY = this.y + moveY;
 
-  // отталкивание от кнопки: если новая позиция пересекает зону кнопки,
-  // двигаемся только по одной оси (той, что не задевает), либо не двигаемся
   if (overlapsExitZone(newX, newY, this.size)) {
-    if (!overlapsExitZone(newX, this.y, this.size)) {
-      // двигаемся только по X
-      newY = this.y;
-    } else if (!overlapsExitZone(this.x, newY, this.size)) {
-      // двигаемся только по Y
-      newX = this.x;
-    } else {
-      // не двигаемся вообще
-      newX = this.x;
-      newY = this.y;
-    }
+    if (!overlapsExitZone(newX, this.y, this.size)) { newY = this.y; }
+    else if (!overlapsExitZone(this.x, newY, this.size)) { newX = this.x; }
+    else { newX = this.x; newY = this.y; }
   }
 
-  this.x = newX;
-  this.y = newY;
-
-  // границы экрана
+  this.x = newX; this.y = newY;
   this.x = Math.max(this.size, Math.min(W - this.size, this.x));
   this.y = Math.max(this.size, Math.min(H - this.size, this.y));
 };
 
 Square.prototype.draw = function() {
   if (sqImage && !this.fake) {
-    ctx.drawImage(
-      sqImage,
-      this.x - this.size / 2,
-      this.y - this.size / 2,
-      this.size,
-      this.size
-    );
+    ctx.drawImage(sqImage, this.x - this.size/2, this.y - this.size/2, this.size, this.size);
   } else {
     ctx.fillStyle = this.color;
-    ctx.fillRect(this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
+    ctx.fillRect(this.x - this.size/2, this.y - this.size/2, this.size, this.size);
   }
 };
 
 Square.prototype.collides = function(mx, my) {
-  return Math.abs(mx - this.x) < this.size / 2 && Math.abs(my - this.y) < this.size / 2;
+  return Math.abs(mx - this.x) < this.size/2 && Math.abs(my - this.y) < this.size/2;
 };
+
+// ---------- ВСПЛЫВАШКИ «+1» ----------
+var popups = [];
+
+function spawnPopup(x, y) {
+  popups.push({
+    x: x,
+    y: y,
+    life: 0.8,
+    maxLife: 0.8
+  });
+}
+
+function updatePopups(dt) {
+  for (var i = popups.length - 1; i >= 0; i--) {
+    var p = popups[i];
+    p.y -= 60 * dt;
+    p.life -= dt;
+    if (p.life <= 0) popups.splice(i, 1);
+  }
+}
+
+function drawPopups() {
+  for (var i = 0; i < popups.length; i++) {
+    var p = popups[i];
+    var alpha = Math.max(0, p.life / p.maxLife);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 28px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("+1", p.x, p.y);
+  }
+  ctx.globalAlpha = 1;
+}
 
 // ---------- ИГРА ----------
 var game = {
   state: MENU,
   mode: "timed",
   score: 0,
-  misses: 0,
   timeLeft: 30,
   record: 0,
   square: null,
@@ -585,8 +698,8 @@ var game = {
     this.square = new Square();
     this.fakeSquares = [];
     this.score = 0;
-    this.misses = 0;
     this.timeLeft = 30;
+    popups = [];
   },
 
   start: function(mode) {
@@ -595,6 +708,8 @@ var game = {
     this.state = PLAYING;
     hideFileLabel();
     hideHexInput();
+    unlockAudio();
+    soundStart();
   },
 
   end: function() {
@@ -603,9 +718,13 @@ var game = {
       this.record = this.score;
       try { localStorage.setItem("catchme_record", this.record); } catch(e) {}
     }
+    soundGameOver();
+    stopMusic();
   },
 
   update: function(dt) {
+    updatePopups(dt);
+
     if (this.state !== PLAYING) return;
     var mx = this.mouse.x, my = this.mouse.y;
     this.square.update(mx, my, this.score, dt);
@@ -628,13 +747,16 @@ var game = {
   },
 
   click: function(px, py) {
+    unlockAudio();
+
     if (this.state === MENU) {
       for (var i = 0; i < this.buttons.length; i++) {
         var b = this.buttons[i];
         if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) {
+          soundClick();
           if (b.id === "timed") this.start("timed");
           if (b.id === "endless") this.start("endless");
-          if (b.id === "settings") { this.state = SETTINGS; }
+          if (b.id === "settings") this.state = SETTINGS;
           return;
         }
       }
@@ -645,9 +767,12 @@ var game = {
       for (var k = 0; k < this.buttons.length; k++) {
         var sb = this.buttons[k];
         if (px >= sb.x && px <= sb.x + sb.w && py >= sb.y && py <= sb.y + sb.h) {
-          if (sb.id === "bg") { this.state = SETTINGS_BG; return; }
-          if (sb.id === "square") { this.state = SETTINGS_SQUARE; return; }
-          if (sb.id === "back") { this.state = MENU; return; }
+          soundClick();
+          if (sb.id === "bg") this.state = SETTINGS_BG;
+          if (sb.id === "square") this.state = SETTINGS_SQUARE;
+          if (sb.id === "sound") this.state = SETTINGS_SOUND;
+          if (sb.id === "back") this.state = MENU;
+          return;
         }
       }
       return;
@@ -687,6 +812,7 @@ var game = {
       for (var m = 0; m < this.buttons.length; m++) {
         var bb = this.buttons[m];
         if (px >= bb.x && px <= bb.x + bb.w && py >= bb.y && py <= bb.y + bb.h) {
+          soundClick();
           if (bb.id === "back") { hideHexInput(); this.state = SETTINGS; return; }
           if (bb.id === "hex") {
             showHexInput(bb.x, bb.y, bb.w, bb.h, bgColor || "#000000", "bg");
@@ -731,6 +857,7 @@ var game = {
       for (var sm = 0; sm < this.buttons.length; sm++) {
         var sbb = this.buttons[sm];
         if (px >= sbb.x && px <= sbb.x + sbb.w && py >= sbb.y && py <= sbb.y + sbb.h) {
+          soundClick();
           if (sbb.id === "back") { hideHexInput(); this.state = SETTINGS; return; }
           if (sbb.id === "hex") {
             showHexInput(sbb.x, sbb.y, sbb.w, sbb.h, squareColor || "#ff5050", "square");
@@ -741,17 +868,62 @@ var game = {
       return;
     }
 
+    if (this.state === SETTINGS_SOUND) {
+      // кнопки
+      for (var q = 0; q < this.buttons.length; q++) {
+        var qb = this.buttons[q];
+        if (px >= qb.x && px <= qb.x + qb.w && py >= qb.y && py <= qb.y + qb.h) {
+          soundClick();
+          if (qb.id === "toggle") {
+            soundEnabled = !soundEnabled;
+            try { localStorage.setItem("catchme_sound", soundEnabled ? "1" : "0"); } catch(e) {}
+            if (soundEnabled) { startMusic(); }
+            else { stopMusic(); }
+            return;
+          }
+          if (qb.id === "test") {
+            playTone(880, 0.15, "square", 0.8);
+            return;
+          }
+          if (qb.id === "back") { this.state = SETTINGS; return; }
+        }
+      }
+      // ползунок эффектов
+      if (window.__fxBar) {
+        var fb = window.__fxBar;
+        if (px >= fb.x && px <= fb.x + fb.w && py >= fb.y && py <= fb.y + fb.h) {
+          fxVolume = 1 - Math.max(0, Math.min(1, (py - fb.y) / fb.h));
+          try { localStorage.setItem("catchme_fxvol", fxVolume); } catch(e) {}
+          playTone(700, 0.06, "square", 0.6);
+          return;
+        }
+      }
+      // ползунок музыки
+      if (window.__musicBar) {
+        var mb = window.__musicBar;
+        if (px >= mb.x && px <= mb.x + mb.w && py >= mb.y && py <= mb.y + mb.h) {
+          musicVolume = 1 - Math.max(0, Math.min(1, (py - mb.y) / mb.h));
+          try { localStorage.setItem("catchme_musicvol", musicVolume); } catch(e) {}
+          return;
+        }
+      }
+      return;
+    }
+
     if (this.state === PLAYING) {
       if (window.__exitButton) {
         var eb = window.__exitButton;
         if (px >= eb.x && px <= eb.x + eb.w && py >= eb.y && py <= eb.y + eb.h) {
+          soundClick();
           this.state = MENU;
+          if (soundEnabled) startMusic();
           return;
         }
       }
       if (this.square.collides(px, py)) {
         this.score++;
-        // переносим в точку подальше от курсора и НЕ под кнопку
+        spawnPopup(px, py);
+        soundHit(this.score);
         var newX, newY, attempts = 0;
         do {
           newX = Math.random() * (W - 100) + 50;
@@ -759,17 +931,15 @@ var game = {
           attempts++;
         } while (
           attempts < 20 &&
-          (Math.sqrt((newX - px) * (newX - px) + (newY - py) * (newY - py)) < 150 ||
+          (Math.sqrt((newX-px)*(newX-px)+(newY-py)*(newY-py)) < 150 ||
            overlapsExitZone(newX, newY, this.square.size))
         );
         this.square.x = newX;
         this.square.y = newY;
         this.square.color = squareColor || COLORS[Math.floor(Math.random() * COLORS.length)];
         this.fakeSquares = [];
-      } else if (this.mode === "endless") {
-        this.misses++;
-        if (this.misses >= 3) this.end();
       }
+      // промахи убраны — в бесконечном тоже ничего не делаем
       return;
     }
 
@@ -777,8 +947,12 @@ var game = {
       for (var j = 0; j < this.buttons.length; j++) {
         var b2 = this.buttons[j];
         if (px >= b2.x && px <= b2.x + b2.w && py >= b2.y && py <= b2.y + b2.h) {
+          soundClick();
           if (b2.id === "again") this.start(this.mode);
-          if (b2.id === "menu") this.state = MENU;
+          if (b2.id === "menu") {
+            this.state = MENU;
+            if (soundEnabled && musicVolume > 0) startMusic();
+          }
           return;
         }
       }
@@ -812,6 +986,7 @@ var game = {
     else if (this.state === SETTINGS) this.drawSettings();
     else if (this.state === SETTINGS_BG) this.drawSettingsBg();
     else if (this.state === SETTINGS_SQUARE) this.drawSettingsSquare();
+    else if (this.state === SETTINGS_SOUND) this.drawSettingsSound();
   },
 
   drawMenu: function() {
@@ -850,15 +1025,16 @@ var game = {
     ctx.font = "bold 44px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("НАСТРОЙКИ", W / 2, H * 0.18);
+    ctx.fillText("НАСТРОЙКИ", W / 2, H * 0.14);
 
     var bw = Math.min(320, W - 60);
     var bx = (W - bw) / 2;
 
-    var bBg = { x: bx, y: H * 0.32, w: bw, h: 60, text: "Фон", id: "bg" };
-    var bSq = { x: bx, y: H * 0.32 + 75, w: bw, h: 60, text: "Квадратик", id: "square" };
-    var bBack = { x: bx, y: H * 0.32 + 200, w: bw, h: 60, text: "Назад", id: "back" };
-    this.buttons = [bBg, bSq, bBack];
+    var bBg = { x: bx, y: H * 0.28, w: bw, h: 55, text: "Фон", id: "bg" };
+    var bSq = { x: bx, y: H * 0.28 + 70, w: bw, h: 55, text: "Квадратик", id: "square" };
+    var bSnd = { x: bx, y: H * 0.28 + 140, w: bw, h: 55, text: "Звук", id: "sound" };
+    var bBack = { x: bx, y: H * 0.28 + 240, w: bw, h: 55, text: "Назад", id: "back" };
+    this.buttons = [bBg, bSq, bSnd, bBack];
     drawButtons(this.buttons);
   },
 
@@ -894,14 +1070,13 @@ var game = {
           var v = 1 - yy / gradH;
           var rgb = hsvToRgb(picker.hue, s, v);
           var idx = (yy * gradW + xx) * 4;
-          data[idx] = rgb[0]; data[idx + 1] = rgb[1];
-          data[idx + 2] = rgb[2]; data[idx + 3] = 255;
+          data[idx] = rgb[0]; data[idx+1] = rgb[1];
+          data[idx+2] = rgb[2]; data[idx+3] = 255;
         }
       }
       gctx.putImageData(img, 0, 0);
     }
     window.__gradHue = picker.hue;
-
     ctx.drawImage(window.__gradCanvasCache, gradX, gradY, gradW, gradH);
 
     ctx.strokeStyle = "#606070";
@@ -932,12 +1107,9 @@ var game = {
 
     var valY = barY + (1 - picker.val) * barH;
     ctx.beginPath();
-    ctx.moveTo(barX - 6, valY);
-    ctx.lineTo(barX, valY - 6);
-    ctx.lineTo(barX + barW + 6, valY - 6);
-    ctx.lineTo(barX + barW, valY);
-    ctx.lineTo(barX + barW + 6, valY + 6);
-    ctx.lineTo(barX, valY + 6);
+    ctx.moveTo(barX-6, valY); ctx.lineTo(barX, valY-6);
+    ctx.lineTo(barX+barW+6, valY-6); ctx.lineTo(barX+barW, valY);
+    ctx.lineTo(barX+barW+6, valY+6); ctx.lineTo(barX, valY+6);
     ctx.closePath();
     ctx.fillStyle = "#ffffff"; ctx.fill();
     ctx.strokeStyle = "#000000"; ctx.lineWidth = 1.5; ctx.stroke();
@@ -961,8 +1133,8 @@ var game = {
     ctx.strokeStyle = "#606070"; ctx.lineWidth = 2;
     ctx.strokeRect(hueX, hueY, hueW, hueH);
 
-    var hueMarkX = hueX + (picker.hue / 360) * hueW;
-    ctx.beginPath(); ctx.arc(hueMarkX, hueY + hueH / 2, 10, 0, Math.PI * 2);
+    var hueMarkX = hueX + (picker.hue/360) * hueW;
+    ctx.beginPath(); ctx.arc(hueMarkX, hueY + hueH/2, 10, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff"; ctx.fill();
     ctx.strokeStyle = "#000000"; ctx.lineWidth = 2; ctx.stroke();
 
@@ -981,7 +1153,6 @@ var game = {
 
     this.buttons = [bHex, bUp, bBack];
     drawButtons(this.buttons);
-
     showFileLabelBg(bUp.x, bUp.y, bUp.w, bUp.h);
   },
 
@@ -1003,14 +1174,13 @@ var game = {
 
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(prevX, prevY, prevW, prevH);
-
     ctx.strokeStyle = "#a0a0b0";
     ctx.lineWidth = 2;
     ctx.strokeRect(prevX, prevY, prevW, prevH);
 
     var sampleSize = 40;
-    var sampleX = prevX + prevW / 2 - sampleSize / 2;
-    var sampleY = prevY + prevH / 2 - sampleSize / 2;
+    var sampleX = prevX + prevW/2 - sampleSize/2;
+    var sampleY = prevY + prevH/2 - sampleSize/2;
 
     if (sqImage) {
       ctx.drawImage(sqImage, sampleX, sampleY, sampleSize, sampleSize);
@@ -1041,14 +1211,13 @@ var game = {
           var v2 = 1 - yy2 / gradH;
           var rgb2 = hsvToRgb(squarePicker.hue, s2, v2);
           var idx2 = (yy2 * gradW + xx2) * 4;
-          data2[idx2] = rgb2[0]; data2[idx2 + 1] = rgb2[1];
-          data2[idx2 + 2] = rgb2[2]; data2[idx2 + 3] = 255;
+          data2[idx2] = rgb2[0]; data2[idx2+1] = rgb2[1];
+          data2[idx2+2] = rgb2[2]; data2[idx2+3] = 255;
         }
       }
       gctx2.putImageData(img2, 0, 0);
     }
     window.__sqGradHue = squarePicker.hue;
-
     ctx.drawImage(window.__sqGradCache, gradX, gradY, gradW, gradH);
 
     ctx.strokeStyle = "#606070"; ctx.lineWidth = 2;
@@ -1072,18 +1241,14 @@ var game = {
     sgrad.addColorStop(1, "#000000");
     ctx.fillStyle = sgrad;
     ctx.fillRect(sbarX, sbarY, sbarW, sbarH);
-
     ctx.strokeStyle = "#606070"; ctx.lineWidth = 2;
     ctx.strokeRect(sbarX, sbarY, sbarW, sbarH);
 
     var svalY = sbarY + (1 - squarePicker.val) * sbarH;
     ctx.beginPath();
-    ctx.moveTo(sbarX - 6, svalY);
-    ctx.lineTo(sbarX, svalY - 6);
-    ctx.lineTo(sbarX + sbarW + 6, svalY - 6);
-    ctx.lineTo(sbarX + sbarW, svalY);
-    ctx.lineTo(sbarX + sbarW + 6, svalY + 6);
-    ctx.lineTo(sbarX, svalY + 6);
+    ctx.moveTo(sbarX-6, svalY); ctx.lineTo(sbarX, svalY-6);
+    ctx.lineTo(sbarX+sbarW+6, svalY-6); ctx.lineTo(sbarX+sbarW, svalY);
+    ctx.lineTo(sbarX+sbarW+6, svalY+6); ctx.lineTo(sbarX, svalY+6);
     ctx.closePath();
     ctx.fillStyle = "#ffffff"; ctx.fill();
     ctx.strokeStyle = "#000000"; ctx.lineWidth = 1.5; ctx.stroke();
@@ -1103,12 +1268,11 @@ var game = {
     shueGrad.addColorStop(1.000, "#ff0000");
     ctx.fillStyle = shueGrad;
     ctx.fillRect(shueX, shueY, shueW, shueH);
-
     ctx.strokeStyle = "#606070"; ctx.lineWidth = 2;
     ctx.strokeRect(shueX, shueY, shueW, shueH);
 
-    var shueMarkX = shueX + (squarePicker.hue / 360) * shueW;
-    ctx.beginPath(); ctx.arc(shueMarkX, shueY + shueH / 2, 9, 0, Math.PI * 2);
+    var shueMarkX = shueX + (squarePicker.hue/360) * shueW;
+    ctx.beginPath(); ctx.arc(shueMarkX, shueY + shueH/2, 9, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff"; ctx.fill();
     ctx.strokeStyle = "#000000"; ctx.lineWidth = 2; ctx.stroke();
 
@@ -1127,15 +1291,108 @@ var game = {
 
     this.buttons = [sbHex, sbUp, sbBack];
     drawButtons(this.buttons);
-
     showFileLabelSq(sbUp.x, sbUp.y, sbUp.w, sbUp.h);
+  },
+
+  drawSettingsSound: function() {
+    exitButtonZone = null;
+    this.buttons = [];
+    hideFileLabel();
+    hideHexInput();
+
+    ctx.fillStyle = "#f0f0f0";
+    ctx.font = "bold 40px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("ЗВУК", W / 2, H * 0.10);
+
+    var bw = Math.min(320, W - 60);
+    var bx = (W - bw) / 2;
+
+    // кнопка вкл/выкл
+    var bToggle = {
+      x: bx, y: H * 0.22, w: bw, h: 60,
+      text: soundEnabled ? "Звук: ВКЛ" : "Звук: ВЫКЛ",
+      id: "toggle"
+    };
+    this.buttons = [bToggle];
+    drawButtons(this.buttons);
+
+    // ползунок эффектов
+    var barY = H * 0.42;
+    var barH = 60;
+    var barW = bw;
+
+    ctx.fillStyle = "#c0c0d0";
+    ctx.font = "18px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("Громкость эффектов: " + Math.round(fxVolume * 100) + "%", W / 2, barY - 8);
+
+    // фон полоски
+    ctx.fillStyle = "#1a1a2a";
+    ctx.fillRect(bx, barY, barW, 30);
+    ctx.strokeStyle = "#50505a";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx, barY, barW, 30);
+
+    // заполнение
+    ctx.fillStyle = "#50a0ff";
+    ctx.fillRect(bx, barY, barW * fxVolume, 30);
+
+    // ползунок
+    var knobX = bx + barW * fxVolume;
+    ctx.beginPath();
+    ctx.arc(knobX, barY + 15, 12, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    window.__fxBar = { x: bx, y: barY, w: barW, h: 30 };
+
+    // ползунок музыки
+    var mbarY = H * 0.58;
+
+    ctx.fillStyle = "#c0c0d0";
+    ctx.font = "18px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("Громкость музыки: " + Math.round(musicVolume * 100) + "%", W / 2, mbarY - 8);
+
+    ctx.fillStyle = "#1a1a2a";
+    ctx.fillRect(bx, mbarY, barW, 30);
+    ctx.strokeStyle = "#50505a";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx, mbarY, barW, 30);
+
+    ctx.fillStyle = "#50ff78";
+    ctx.fillRect(bx, mbarY, barW * musicVolume, 30);
+
+    var mknobX = bx + barW * musicVolume;
+    ctx.beginPath();
+    ctx.arc(mknobX, mbarY + 15, 12, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    window.__musicBar = { x: bx, y: mbarY, w: barW, h: 30 };
+
+    // кнопки
+    var bTest = { x: bx, y: H * 0.72, w: bw, h: 55, text: "Проверить звук", id: "test" };
+    var bBack = { x: bx, y: H * 0.72 + 70, w: bw, h: 55, text: "Назад", id: "back" };
+
+    this.buttons = [bToggle, bTest, bBack];
+    drawButtons(this.buttons);
   },
 
   drawPlaying: function() {
     hideFileLabel();
     hideHexInput();
 
-    // сначала кнопка выхода — чтобы установить зону ДО отрисовки квадратика
     var exitSize = 48;
     var exitX = W - exitSize - 16;
     var exitY = 16;
@@ -1143,6 +1400,9 @@ var game = {
 
     for (var i = 0; i < this.fakeSquares.length; i++) this.fakeSquares[i].draw();
     this.square.draw();
+
+    // всплывашки
+    drawPopups();
 
     ctx.fillStyle = "#f0f0f0";
     ctx.font = "bold 24px Arial";
@@ -1154,7 +1414,7 @@ var game = {
     if (this.mode === "timed") {
       ctx.fillText("Время: " + Math.ceil(this.timeLeft), 20, 52);
     } else {
-      ctx.fillText("Промахи: " + this.misses + "/3", 20, 52);
+      ctx.fillText("Бесконечный", 20, 52);
     }
 
     var hover = game.mouse.x >= exitX && game.mouse.x <= exitX + exitSize &&
@@ -1162,19 +1422,17 @@ var game = {
 
     ctx.fillStyle = hover ? "#3c3c50" : "#232332";
     ctx.fillRect(exitX, exitY, exitSize, exitSize);
-
-    ctx.strokeStyle = "#50505a";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#50505a"; ctx.lineWidth = 2;
     ctx.strokeRect(exitX, exitY, exitSize, exitSize);
 
     ctx.strokeStyle = "#f0f0f0";
     ctx.lineWidth = 3;
     var pad = 14;
     ctx.beginPath();
-    ctx.moveTo(exitX + pad, exitY + pad);
-    ctx.lineTo(exitX + exitSize - pad, exitY + exitSize - pad);
-    ctx.moveTo(exitX + exitSize - pad, exitY + pad);
-    ctx.lineTo(exitX + pad, exitY + exitSize - pad);
+    ctx.moveTo(exitX+pad, exitY+pad);
+    ctx.lineTo(exitX+exitSize-pad, exitY+exitSize-pad);
+    ctx.moveTo(exitX+exitSize-pad, exitY+pad);
+    ctx.lineTo(exitX+pad, exitY+exitSize-pad);
     ctx.stroke();
 
     window.__exitButton = { x: exitX, y: exitY, w: exitSize, h: exitSize };
@@ -1228,12 +1486,11 @@ function drawButtons(list) {
     ctx.strokeStyle = "#50505a";
     ctx.lineWidth = 2;
     ctx.strokeRect(b.x, b.y, b.w, b.h);
-
     ctx.fillStyle = "#f0f0f0";
     ctx.font = "bold 18px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(b.text, b.x + b.w / 2, b.y + b.h / 2);
+    ctx.fillText(b.text, b.x + b.w/2, b.y + b.h/2);
   }
 }
 
@@ -1294,6 +1551,12 @@ game.reset();
 initBg();
 initSqImage();
 loop();
+
+// первая попытка запустить музыку (если браузер разрешит — заиграет сразу)
+window.addEventListener("load", function() {
+  // не запускаем сразу — браузер не даст.
+  // музыка стартует при первом клике через unlockAudio()
+});
 </script>
 </body>
 </html>
