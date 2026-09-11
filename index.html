@@ -133,22 +133,18 @@ function unlockAudio() {
   if (audioCtx && audioCtx.state === "suspended") {
     audioCtx.resume().catch(function(){});
   }
-  // запускаем музыку при первом действии
-  if (audioReady && soundEnabled && !musicPlaying) {
-    startMusic();
+  if (audioReady && soundEnabled) {
+    ensureMusicPlaying();
   }
 }
 
 // ---- эффекты ----
-function playTone(freq, duration, type, volumeScale, freqEnd, isMusic) {
+function playTone(freq, duration, type, volumeScale, freqEnd) {
   if (!soundEnabled) return;
-  var vol = isMusic ? musicVolume : fxVolume;
-  if (vol <= 0) return;
+  if (fxVolume <= 0) return;
   if (!audioReady) initAudio();
   if (!audioCtx) return;
-  if (audioCtx.state === "suspended") {
-    audioCtx.resume().catch(function(){});
-  }
+  if (audioCtx.state === "suspended") audioCtx.resume().catch(function(){});
   try {
     var now = audioCtx.currentTime;
     var osc = audioCtx.createOscillator();
@@ -158,7 +154,7 @@ function playTone(freq, duration, type, volumeScale, freqEnd, isMusic) {
     if (freqEnd !== undefined) {
       osc.frequency.exponentialRampToValueAtTime(Math.max(1, freqEnd), now + duration);
     }
-    var peak = vol * (volumeScale || 1) * 0.3;
+    var peak = fxVolume * (volumeScale || 1) * 0.3;
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime(peak, now + 0.005);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
@@ -189,67 +185,200 @@ function soundBoost() {
   playTone(1100, 0.06, "triangle", 0.5);
 }
 
-// ---- музыка ----
-// простая мелодия в стиле пиксельных игр
+// ============================================================
+// МУЗЫКА
+// ============================================================
+// Ноты (частоты в Гц):
+// C4=261.63 D4=293.66 E4=329.63 F4=349.23 G4=392.00 A4=440.00 B4=493.88
+// C5=523.25 D5=587.33 E5=659.25 F5=698.46 G5=783.99 A5=880.00 B5=987.77
+// C6=1046.50
+//
+// Пентатоника C: C D E G A — все ноты сочетаются.
+// Аккорд: к ноте мелодии добавляем ноту на 2 ступени выше (терция).
+
+// --- Меню: спокойная, 8 нот ---
+var MELODY_MENU = [
+  523.25, 587.33, 659.25, 783.99,
+  659.25, 587.33, 523.25, 392.00
+];
+var BASS_MENU = [130.81, 130.81, 164.81, 164.81];
+
+// --- Игра, трек 1: весёлый, 32 ноты ---
+var MELODY_GAME1 = [
+  // фраза 1
+  523.25, 587.33, 659.25, 783.99, 659.25, 587.33, 523.25, 587.33,
+  // фраза 2
+  659.25, 783.99, 880.00, 1046.50, 880.00, 783.99, 659.25, 587.33,
+  // фраза 3
+  523.25, 659.25, 783.99, 880.00, 783.99, 659.25, 523.25, 392.00,
+  // фраза 4
+  523.25, 587.33, 659.25, 783.99, 880.00, 783.99, 659.25, 523.25
+];
+var BASS_GAME1 = [
+  130.81, 130.81, 164.81, 164.81,
+  174.61, 174.61, 130.81, 130.81,
+  130.81, 130.81, 196.00, 196.00,
+  174.61, 174.61, 130.81, 130.81
+];
+
+// --- Игра, трек 2: энергичный, 32 ноты ---
+var MELODY_GAME2 = [
+  // фраза 1
+  659.25, 783.99, 880.00, 1046.50, 880.00, 783.99, 880.00, 1046.50,
+  // фраза 2
+  1174.66, 1046.50, 880.00, 783.99, 880.00, 1046.50, 1174.66, 1318.51,
+  // фраза 3
+  1174.66, 1046.50, 880.00, 783.99, 659.25, 783.99, 880.00, 1046.50,
+  // фраза 4
+  880.00, 783.99, 659.25, 587.33, 523.25, 587.33, 659.25, 783.99
+];
+var BASS_GAME2 = [
+  164.81, 164.81, 196.00, 196.00,
+  220.00, 220.00, 196.00, 196.00,
+  164.81, 164.81, 130.81, 130.81,
+  146.83, 146.83, 164.81, 164.81
+];
+
+// --- Игра, трек 3: задорный, 32 ноты ---
+var MELODY_GAME3 = [
+  // фраза 1
+  523.25, 659.25, 523.25, 783.99, 659.25, 523.25, 587.33, 659.25,
+  // фраза 2
+  783.99, 880.00, 783.99, 1046.50, 880.00, 783.99, 880.00, 1046.50,
+  // фраза 3
+  880.00, 783.99, 659.25, 587.33, 659.25, 783.99, 880.00, 783.99,
+  // фраза 4
+  659.25, 587.33, 523.25, 587.33, 659.25, 783.99, 659.25, 523.25
+];
+var BASS_GAME3 = [
+  130.81, 130.81, 174.61, 174.61,
+  196.00, 196.00, 220.00, 220.00,
+  174.61, 174.61, 164.81, 164.81,
+  130.81, 130.81, 146.83, 146.83
+];
+
+// --- Game Over: грустная, 8 нот, минор ---
+var MELODY_GAMEOVER = [
+  440.00, 415.30, 392.00, 349.23,
+  329.63, 293.66, 261.63, 220.00
+];
+var BASS_GAMEOVER = [110.00, 110.00, 87.31, 87.31];
+
+// Музыкальный движок
 var musicPlaying = false;
 var musicTimer = null;
 var musicStep = 0;
+var musicMode = "menu"; // "menu", "game", "gameover", "silent"
+var gameTrackIndex = 0; // 0, 1, 2 — какой из трёх игровых треков играет
 
-// ноты в Гц: C5, E5, G5, C6, G5, E5, D5, G5
-var MELODY = [
-  523.25, 659.25, 783.99, 1046.50,
-  783.99, 659.25, 587.33, 783.99
-];
+var MELODY_TEMPO = 220; // мс между нотами
 
-// бас: C3, C3, A2, A2 — на каждые 2 ноты мелодии
-var BASS = [
-  130.81, 130.81, 110.00, 110.00
-];
+function getCurrentMelody() {
+  if (musicMode === "menu") return MELODY_MENU;
+  if (musicMode === "gameover") return MELODY_GAMEOVER;
+  if (musicMode === "game") {
+    if (gameTrackIndex === 0) return MELODY_GAME1;
+    if (gameTrackIndex === 1) return MELODY_GAME2;
+    return MELODY_GAME3;
+  }
+  return MELODY_MENU;
+}
 
-var MELODY_TEMPO = 320; // мс между нотами
+function getCurrentBass() {
+  if (musicMode === "menu") return BASS_MENU;
+  if (musicMode === "gameover") return BASS_GAMEOVER;
+  if (musicMode === "game") {
+    if (gameTrackIndex === 0) return BASS_GAME1;
+    if (gameTrackIndex === 1) return BASS_GAME2;
+    return BASS_GAME3;
+  }
+  return BASS_MENU;
+}
 
+// Играем ноту
 function playMusicNote() {
-  if (!soundEnabled || musicVolume <= 0 || !audioCtx) return;
+  if (!audioCtx || !soundEnabled || musicVolume <= 0) return;
+  if (musicMode === "silent") return;
 
+  var melody = getCurrentMelody();
+  var bassLine = getCurrentBass();
   var now = audioCtx.currentTime;
+  var idx = musicStep % melody.length;
 
-  // мелодия
-  var f = MELODY[musicStep % MELODY.length];
+  // --- МЕЛОДИЯ ---
+  var f = melody[idx];
   try {
     var osc = audioCtx.createOscillator();
     var gain = audioCtx.createGain();
     osc.type = "square";
     osc.frequency.setValueAtTime(f, now);
-    var peak = musicVolume * 0.08;
+    var peak = musicVolume * 0.07;
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime(peak, now + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.20);
     osc.connect(gain);
     gain.connect(audioCtx.destination);
     osc.start(now);
-    osc.stop(now + 0.28);
+    osc.stop(now + 0.22);
   } catch(e) {}
 
-  // бас — каждые 2 шага
-  if (musicStep % 2 === 0) {
-    var bassF = BASS[Math.floor(musicStep / 2) % BASS.length];
+  // --- АККОРД (каждая 4-я нота) ---
+  if (idx % 4 === 0 && musicMode !== "gameover") {
     try {
-      var osc2 = audioCtx.createOscillator();
-      var gain2 = audioCtx.createGain();
-      osc2.type = "triangle";
-      osc2.frequency.setValueAtTime(bassF, now);
-      var peak2 = musicVolume * 0.12;
-      gain2.gain.setValueAtTime(0.0001, now);
-      gain2.gain.exponentialRampToValueAtTime(peak2, now + 0.01);
-      gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
-      osc2.connect(gain2);
-      gain2.connect(audioCtx.destination);
-      osc2.start(now);
-      osc2.stop(now + 0.55);
+      var oscC = audioCtx.createOscillator();
+      var gainC = audioCtx.createGain();
+      oscC.type = "square";
+      // нота на терцию выше (примерно x1.25)
+      oscC.frequency.setValueAtTime(f * 1.25, now);
+      var peakC = musicVolume * 0.04;
+      gainC.gain.setValueAtTime(0.0001, now);
+      gainC.gain.exponentialRampToValueAtTime(peakC, now + 0.01);
+      gainC.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+      oscC.connect(gainC);
+      gainC.connect(audioCtx.destination);
+      oscC.start(now);
+      oscC.stop(now + 0.24);
+    } catch(e) {}
+  }
+
+  // --- БАС (каждые 2 шага) ---
+  if (idx % 2 === 0) {
+    var bassF = bassLine[Math.floor(idx / 2) % bassLine.length];
+    try {
+      var oscB = audioCtx.createOscillator();
+      var gainB = audioCtx.createGain();
+      oscB.type = "triangle";
+      oscB.frequency.setValueAtTime(bassF, now);
+      var peakB = musicVolume * 0.11;
+      gainB.gain.setValueAtTime(0.0001, now);
+      gainB.gain.exponentialRampToValueAtTime(peakB, now + 0.01);
+      gainB.gain.exponentialRampToValueAtTime(0.0001, now + 0.40);
+      oscB.connect(gainB);
+      gainB.connect(audioCtx.destination);
+      oscB.start(now);
+      oscB.stop(now + 0.42);
     } catch(e) {}
   }
 
   musicStep++;
+
+  // конец трека — переключаем
+  if (musicStep >= melody.length) {
+    musicStep = 0;
+    onMelodyEnd();
+  }
+}
+
+function onMelodyEnd() {
+  if (musicMode === "game") {
+    // переключаем на следующий игровой трек
+    gameTrackIndex = (gameTrackIndex + 1) % 3;
+  } else if (musicMode === "gameover") {
+    // грустная играет один раз и затихает
+    stopMusic();
+    musicMode = "silent";
+  }
+  // в меню — просто по кругу ту же мелодию
 }
 
 function startMusic() {
@@ -257,7 +386,10 @@ function startMusic() {
   if (!audioReady) initAudio();
   if (!audioCtx) return;
   if (!soundEnabled || musicVolume <= 0) return;
+  if (musicMode === "silent") return;
+
   musicPlaying = true;
+  musicStep = 0;
   playMusicNote();
   musicTimer = setInterval(playMusicNote, MELODY_TEMPO);
 }
@@ -268,12 +400,30 @@ function stopMusic() {
   if (musicTimer) { clearInterval(musicTimer); musicTimer = null; }
 }
 
-function restartMusic() {
+// Сменить режим музыки
+function setMusicMode(mode) {
+  var wasPlaying = musicPlaying;
   stopMusic();
-  if (soundEnabled && musicVolume > 0 && audioReady) {
+  musicMode = mode;
+  musicStep = 0;
+  if (mode === "game") {
+    gameTrackIndex = 0; // начинаем с трека 1
+  }
+  if (soundEnabled && musicVolume > 0 && mode !== "silent") {
     startMusic();
   }
 }
+
+// Убедиться, что играет нужное (после разблокировки аудио)
+function ensureMusicPlaying() {
+  if (musicPlaying) return;
+  if (musicMode === "silent") return;
+  if (!soundEnabled || musicVolume <= 0) return;
+  if (!audioReady) initAudio();
+  if (audioReady) startMusic();
+}
+
+// ============================================================
 
 // ---------- ХРАНИЛИЩА ----------
 var bgColor = null;
@@ -380,7 +530,6 @@ function deleteFromStore(s) {
     });
   });
 }
-
 function applyBgFromBlob(blob) {
   if (bgImageURL) { URL.revokeObjectURL(bgImageURL); bgImageURL = null; }
   bgImageURL = URL.createObjectURL(blob);
@@ -647,18 +796,11 @@ Square.prototype.collides = function(mx, my) {
   return Math.abs(mx - this.x) < this.size/2 && Math.abs(my - this.y) < this.size/2;
 };
 
-// ---------- ВСПЛЫВАШКИ «+1» ----------
+// ---------- «+1» ----------
 var popups = [];
-
 function spawnPopup(x, y) {
-  popups.push({
-    x: x,
-    y: y,
-    life: 0.8,
-    maxLife: 0.8
-  });
+  popups.push({ x: x, y: y, life: 0.8, maxLife: 0.8 });
 }
-
 function updatePopups(dt) {
   for (var i = popups.length - 1; i >= 0; i--) {
     var p = popups[i];
@@ -667,7 +809,6 @@ function updatePopups(dt) {
     if (p.life <= 0) popups.splice(i, 1);
   }
 }
-
 function drawPopups() {
   for (var i = 0; i < popups.length; i++) {
     var p = popups[i];
@@ -710,6 +851,7 @@ var game = {
     hideHexInput();
     unlockAudio();
     soundStart();
+    setMusicMode("game");
   },
 
   end: function() {
@@ -719,7 +861,7 @@ var game = {
       try { localStorage.setItem("catchme_record", this.record); } catch(e) {}
     }
     soundGameOver();
-    stopMusic();
+    setMusicMode("gameover");
   },
 
   update: function(dt) {
@@ -869,7 +1011,6 @@ var game = {
     }
 
     if (this.state === SETTINGS_SOUND) {
-      // кнопки
       for (var q = 0; q < this.buttons.length; q++) {
         var qb = this.buttons[q];
         if (px >= qb.x && px <= qb.x + qb.w && py >= qb.y && py <= qb.y + qb.h) {
@@ -877,8 +1018,11 @@ var game = {
           if (qb.id === "toggle") {
             soundEnabled = !soundEnabled;
             try { localStorage.setItem("catchme_sound", soundEnabled ? "1" : "0"); } catch(e) {}
-            if (soundEnabled) { startMusic(); }
-            else { stopMusic(); }
+            if (soundEnabled) {
+              ensureMusicPlaying();
+            } else {
+              stopMusic();
+            }
             return;
           }
           if (qb.id === "test") {
@@ -888,7 +1032,6 @@ var game = {
           if (qb.id === "back") { this.state = SETTINGS; return; }
         }
       }
-      // ползунок эффектов
       if (window.__fxBar) {
         var fb = window.__fxBar;
         if (px >= fb.x && px <= fb.x + fb.w && py >= fb.y && py <= fb.y + fb.h) {
@@ -898,12 +1041,13 @@ var game = {
           return;
         }
       }
-      // ползунок музыки
       if (window.__musicBar) {
         var mb = window.__musicBar;
         if (px >= mb.x && px <= mb.x + mb.w && py >= mb.y && py <= mb.y + mb.h) {
           musicVolume = 1 - Math.max(0, Math.min(1, (py - mb.y) / mb.h));
           try { localStorage.setItem("catchme_musicvol", musicVolume); } catch(e) {}
+          if (musicVolume <= 0) stopMusic();
+          else ensureMusicPlaying();
           return;
         }
       }
@@ -916,7 +1060,7 @@ var game = {
         if (px >= eb.x && px <= eb.x + eb.w && py >= eb.y && py <= eb.y + eb.h) {
           soundClick();
           this.state = MENU;
-          if (soundEnabled) startMusic();
+          setMusicMode("menu");
           return;
         }
       }
@@ -939,7 +1083,6 @@ var game = {
         this.square.color = squareColor || COLORS[Math.floor(Math.random() * COLORS.length)];
         this.fakeSquares = [];
       }
-      // промахи убраны — в бесконечном тоже ничего не делаем
       return;
     }
 
@@ -951,7 +1094,7 @@ var game = {
           if (b2.id === "again") this.start(this.mode);
           if (b2.id === "menu") {
             this.state = MENU;
-            if (soundEnabled && musicVolume > 0) startMusic();
+            setMusicMode("menu");
           }
           return;
         }
@@ -1101,7 +1244,6 @@ var game = {
     grad.addColorStop(1, "#000000");
     ctx.fillStyle = grad;
     ctx.fillRect(barX, barY, barW, barH);
-
     ctx.strokeStyle = "#606070"; ctx.lineWidth = 2;
     ctx.strokeRect(barX, barY, barW, barH);
 
@@ -1129,7 +1271,6 @@ var game = {
     hueGrad.addColorStop(1.000, "#ff0000");
     ctx.fillStyle = hueGrad;
     ctx.fillRect(hueX, hueY, hueW, hueH);
-
     ctx.strokeStyle = "#606070"; ctx.lineWidth = 2;
     ctx.strokeRect(hueX, hueY, hueW, hueH);
 
@@ -1309,7 +1450,6 @@ var game = {
     var bw = Math.min(320, W - 60);
     var bx = (W - bw) / 2;
 
-    // кнопка вкл/выкл
     var bToggle = {
       x: bx, y: H * 0.22, w: bw, h: 60,
       text: soundEnabled ? "Звук: ВКЛ" : "Звук: ВЫКЛ",
@@ -1318,9 +1458,8 @@ var game = {
     this.buttons = [bToggle];
     drawButtons(this.buttons);
 
-    // ползунок эффектов
+    // эффекты
     var barY = H * 0.42;
-    var barH = 60;
     var barW = bw;
 
     ctx.fillStyle = "#c0c0d0";
@@ -1329,59 +1468,42 @@ var game = {
     ctx.textBaseline = "bottom";
     ctx.fillText("Громкость эффектов: " + Math.round(fxVolume * 100) + "%", W / 2, barY - 8);
 
-    // фон полоски
     ctx.fillStyle = "#1a1a2a";
     ctx.fillRect(bx, barY, barW, 30);
-    ctx.strokeStyle = "#50505a";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#50505a"; ctx.lineWidth = 2;
     ctx.strokeRect(bx, barY, barW, 30);
-
-    // заполнение
     ctx.fillStyle = "#50a0ff";
     ctx.fillRect(bx, barY, barW * fxVolume, 30);
 
-    // ползунок
     var knobX = bx + barW * fxVolume;
-    ctx.beginPath();
-    ctx.arc(knobX, barY + 15, 12, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.strokeStyle = "#000000";
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    ctx.beginPath(); ctx.arc(knobX, barY + 15, 12, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff"; ctx.fill();
+    ctx.strokeStyle = "#000000"; ctx.lineWidth = 2; ctx.stroke();
 
     window.__fxBar = { x: bx, y: barY, w: barW, h: 30 };
 
-    // ползунок музыки
+    // музыка
     var mbarY = H * 0.58;
 
     ctx.fillStyle = "#c0c0d0";
     ctx.font = "18px Arial";
-    ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
     ctx.fillText("Громкость музыки: " + Math.round(musicVolume * 100) + "%", W / 2, mbarY - 8);
 
     ctx.fillStyle = "#1a1a2a";
     ctx.fillRect(bx, mbarY, barW, 30);
-    ctx.strokeStyle = "#50505a";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#50505a"; ctx.lineWidth = 2;
     ctx.strokeRect(bx, mbarY, barW, 30);
-
     ctx.fillStyle = "#50ff78";
     ctx.fillRect(bx, mbarY, barW * musicVolume, 30);
 
     var mknobX = bx + barW * musicVolume;
-    ctx.beginPath();
-    ctx.arc(mknobX, mbarY + 15, 12, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.strokeStyle = "#000000";
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    ctx.beginPath(); ctx.arc(mknobX, mbarY + 15, 12, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff"; ctx.fill();
+    ctx.strokeStyle = "#000000"; ctx.lineWidth = 2; ctx.stroke();
 
     window.__musicBar = { x: bx, y: mbarY, w: barW, h: 30 };
 
-    // кнопки
     var bTest = { x: bx, y: H * 0.72, w: bw, h: 55, text: "Проверить звук", id: "test" };
     var bBack = { x: bx, y: H * 0.72 + 70, w: bw, h: 55, text: "Назад", id: "back" };
 
@@ -1401,7 +1523,6 @@ var game = {
     for (var i = 0; i < this.fakeSquares.length; i++) this.fakeSquares[i].draw();
     this.square.draw();
 
-    // всплывашки
     drawPopups();
 
     ctx.fillStyle = "#f0f0f0";
@@ -1425,8 +1546,7 @@ var game = {
     ctx.strokeStyle = "#50505a"; ctx.lineWidth = 2;
     ctx.strokeRect(exitX, exitY, exitSize, exitSize);
 
-    ctx.strokeStyle = "#f0f0f0";
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#f0f0f0"; ctx.lineWidth = 3;
     var pad = 14;
     ctx.beginPath();
     ctx.moveTo(exitX+pad, exitY+pad);
@@ -1483,8 +1603,7 @@ function drawButtons(list) {
                 game.mouse.y >= b.y && game.mouse.y <= b.y + b.h;
     ctx.fillStyle = hover ? "#3c3c50" : "#232332";
     ctx.fillRect(b.x, b.y, b.w, b.h);
-    ctx.strokeStyle = "#50505a";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#50505a"; ctx.lineWidth = 2;
     ctx.strokeRect(b.x, b.y, b.w, b.h);
     ctx.fillStyle = "#f0f0f0";
     ctx.font = "bold 18px Arial";
@@ -1550,13 +1669,8 @@ try {
 game.reset();
 initBg();
 initSqImage();
+musicMode = "menu";
 loop();
-
-// первая попытка запустить музыку (если браузер разрешит — заиграет сразу)
-window.addEventListener("load", function() {
-  // не запускаем сразу — браузер не даст.
-  // музыка стартует при первом клике через unlockAudio()
-});
 </script>
 </body>
 </html>
