@@ -2589,7 +2589,7 @@ var game = {
 
     // прокрутка
     var listTop = tabY + tabH + 12;
-    var listBottom = H - 80;
+    var listBottom = H - 150;
     var cardH = 110;
     var cardGap = 8;
     var contentH = visible.length * (cardH + cardGap);
@@ -3035,7 +3035,7 @@ function handleDrag(px, py) {
 function startAchScroll(py) {
   if (game.state !== ACHIEVEMENTS) return false;
   var listTop = H * 0.09 + 32 + 12;
-  var listBottom = H - 80;
+  var listBottom = H - 150;
   if (py < listTop || py > listBottom) return false;
   game.achDragging = true;
   game.achTouchY = py;
@@ -3053,6 +3053,15 @@ function moveAchScroll(py) {
 function endAchScroll() {
   game.achDragging = false;
 }
+
+canvas.addEventListener("wheel", function(e) {
+  if (game.state === ACHIEVEMENTS) {
+    e.preventDefault();
+    game.achScroll += e.deltaY * 0.5;
+    if (game.achScroll < 0) game.achScroll = 0;
+    if (game.achScroll > game.achMaxScroll) game.achScroll = game.achMaxScroll;
+  }
+}, { passive: false });
 
 canvas.addEventListener("mousemove", function(e) {
   var p = posFromEvent(e);
