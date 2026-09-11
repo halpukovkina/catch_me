@@ -78,6 +78,11 @@ var LEVELS = [
   { score: 15, speed: 3.2, behavior: "hunt" }
 ];
 
+// ---------- РАЗМЕР КВАДРАТИКА ----------
+var SIZE_START = 50;   // стартовый размер
+var SIZE_MIN = 14;     // минимальный размер
+var SIZE_STEP = 2.5;   // на сколько уменьшается за каждое очко
+
 // ---------- ХРАНИЛИЩЕ ЦВЕТА ФОНА ----------
 var bgColor = null;
 try { bgColor = localStorage.getItem("catchme_bgcolor") || null; } catch(e) {}
@@ -310,7 +315,7 @@ function pickBgColor(hex) {
 
 // ---------- КВАДРАТИК ----------
 function Square() {
-  this.size = 30;
+  this.size = SIZE_START;  // начинаем с большого
   this.x = Math.random() * (W - 100) + 50;
   this.y = Math.random() * (H - 100) + 50;
   this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
@@ -331,6 +336,12 @@ Square.prototype.update = function(mx, my, score) {
   }
   this.speed = current.speed;
   this.behavior = this.fake ? "run" : current.behavior;
+
+  // размер уменьшается с ростом счёта
+  // (только для настоящего квадратика, не для ложных)
+  if (!this.fake) {
+    this.size = Math.max(SIZE_MIN, SIZE_START - score * SIZE_STEP);
+  }
 
   var dx = this.x - mx;
   var dy = this.y - my;
@@ -359,9 +370,9 @@ Square.prototype.update = function(mx, my, score) {
       this.y += dy * this.speed * 0.6;
     }
   } else if (this.behavior === "disguise") {
+    // меняем ТОЛЬКО цвет — размер контролируется общим уменьшением
     this.disguiseTimer--;
     if (this.disguiseTimer <= 0) {
-      this.size = [20, 30, 45][Math.floor(Math.random() * 3)];
       this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
       this.disguiseTimer = 60;
     }
@@ -658,7 +669,6 @@ var game = {
     var gradX = (W - gradW) / 2 - 20;
     var gradY = H * 0.11;
 
-    // кэш — обновляется при смене размера ИЛИ оттенка
     if (!window.__gradCanvasCache ||
         window.__gradCanvasCache.width !== gradW ||
         window.__gradCanvasCache.height !== gradH ||
@@ -692,7 +702,6 @@ var game = {
     ctx.lineWidth = 2;
     ctx.strokeRect(gradX, gradY, gradW, gradH);
 
-    // маркер на градиенте
     var markX = gradX + picker.sat * gradW;
     var markY = gradY + (1 - picker.val) * gradH;
     ctx.beginPath();
@@ -801,7 +810,6 @@ var game = {
     for (var i = 0; i < this.fakeSquares.length; i++) this.fakeSquares[i].draw();
     this.square.draw();
 
-    // счёт и время — в левом верхнем углу, двумя строчками
     ctx.fillStyle = "#f0f0f0";
     ctx.font = "bold 24px Arial";
     ctx.textAlign = "left";
@@ -815,7 +823,6 @@ var game = {
       ctx.fillText("Промахи: " + this.misses + "/3", 20, 52);
     }
 
-    // кнопка-крестик в правом верхнем углу
     var exitSize = 48;
     var exitX = W - exitSize - 16;
     var exitY = 16;
