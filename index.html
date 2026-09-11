@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Поймай меня</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -22,7 +22,6 @@
     z-index: 100;
     cursor: pointer;
   }
-  /* Скрытый input для HEX-кода */
   #hexInput {
     position: fixed;
     display: none;
@@ -43,7 +42,6 @@
 <body>
 <canvas id="game"></canvas>
 
-<!-- Скрытые элементы -->
 <input type="file" id="fileInput" accept="image/*">
 <label for="fileInput" id="fileLabel"></label>
 <input type="text" id="hexInput" maxlength="7" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="#000000">
@@ -84,7 +82,7 @@ var LEVELS = [
 var bgColor = null;
 try { bgColor = localStorage.getItem("catchme_bgcolor") || null; } catch(e) {}
 
-// ---------- HSV КОНВЕРТАЦИЯ ----------
+// ---------- HSV / RGB / HEX ----------
 function hsvToRgb(h, s, v) {
   var c = v * s;
   var x = c * (1 - Math.abs(((h / 60) % 2) - 1));
@@ -117,13 +115,11 @@ function hexToRgb(hex) {
 
 // ---------- СОСТОЯНИЕ ПИКЕРА ----------
 var picker = {
-  hue: 0,          // 0..360
-  sat: 1,          // 0..1
-  val: 1,          // 0..1
-  dragging: false  // тянет ли пользователь по градиенту
+  hue: 0,
+  sat: 1,
+  val: 1
 };
 
-// если есть сохранённый цвет — попробуем инициализировать пикер по нему
 function initPickerFromColor(hex) {
   if (!hex) return;
   var rgb = hexToRgb(hex);
@@ -228,7 +224,6 @@ fileInput.addEventListener("change", function(e) {
     return;
   }
 
-  // сбрасываем цвет
   bgColor = null;
   try { localStorage.removeItem("catchme_bgcolor"); } catch(err) {}
 
@@ -276,7 +271,6 @@ function hideHexInput() {
   hexInput.blur();
 }
 
-// Enter или потеря фокуса — применяем
 function applyHexInput() {
   var val = hexInput.value.trim();
   if (val.length > 0 && val[0] !== "#") val = "#" + val;
@@ -486,7 +480,7 @@ var game = {
     }
 
     if (this.state === SETTINGS_BG) {
-      // проверка градиента
+      // градиент
       if (window.__pickerGrad) {
         var g = window.__pickerGrad;
         if (px >= g.x && px <= g.x + g.w && py >= g.y && py <= g.y + g.h) {
@@ -497,7 +491,7 @@ var game = {
           return;
         }
       }
-      // проверка ползунка яркости
+      // ползунок яркости
       if (window.__pickerBar) {
         var bar = window.__pickerBar;
         if (px >= bar.x && px <= bar.x + bar.w && py >= bar.y && py <= bar.y + bar.h) {
@@ -507,7 +501,19 @@ var game = {
           return;
         }
       }
-      // проверка кнопок
+      // hue-полоса
+      if (window.__pickerHue) {
+        var hb = window.__pickerHue;
+        if (px >= hb.x && px <= hb.x + hb.w && py >= hb.y && py <= hb.y + hb.h) {
+          picker.hue = ((px - hb.x) / hb.w) * 360;
+          if (picker.hue < 0) picker.hue = 0;
+          if (picker.hue > 360) picker.hue = 360;
+          var rgb3 = hsvToRgb(picker.hue, picker.sat, picker.val);
+          pickBgColor(rgbToHex(rgb3[0], rgb3[1], rgb3[2]));
+          return;
+        }
+      }
+      // кнопки
       for (var m = 0; m < this.buttons.length; m++) {
         var bb = this.buttons[m];
         if (px >= bb.x && px <= bb.x + bb.w && py >= bb.y && py <= bb.y + bb.h) {
@@ -523,13 +529,20 @@ var game = {
             hexInput.select();
             return;
           }
-          // upload — через label, не здесь
         }
       }
       return;
     }
 
     if (this.state === PLAYING) {
+      // кнопка-крестик
+      if (window.__exitButton) {
+        var eb = window.__exitButton;
+        if (px >= eb.x && px <= eb.x + eb.w && py >= eb.y && py <= eb.y + eb.h) {
+          this.state = MENU;
+          return;
+        }
+      }
       if (this.square.collides(px, py)) {
         this.score++;
         this.square.x = Math.random() * (W - 100) + 50;
@@ -609,7 +622,6 @@ var game = {
     drawButtons(this.buttons);
   },
 
-  // ---- ЭКРАН НАСТРОЕК (главное меню настроек) ----
   drawSettings: function() {
     this.buttons = [];
     hideFileLabel();
@@ -625,13 +637,11 @@ var game = {
     var bx = (W - bw) / 2;
 
     var bBg = { x: bx, y: H * 0.35, w: bw, h: 60, text: "Фон", id: "bg" };
-    // здесь позже можно добавить: Звук, Сложность, Управление
     var bBack = { x: bx, y: H * 0.35 + 200, w: bw, h: 60, text: "Назад", id: "back" };
     this.buttons = [bBg, bBack];
     drawButtons(this.buttons);
   },
 
-  // ---- ЭКРАН НАСТРОЙКИ ФОНА ----
   drawSettingsBg: function() {
     this.buttons = [];
     hideFileLabel();
@@ -642,14 +652,18 @@ var game = {
     ctx.textBaseline = "middle";
     ctx.fillText("ФОН", W / 2, H * 0.06);
 
-    // ---------- ГРАДИЕНТ HSV ----------
-    // Рисуем пиксель за пикселем — используем offscreen canvas для скорости
+    // ---- ГРАДИЕНТ HSV ----
     var gradW = Math.min(W - 140, 400);
-    var gradH = Math.min(H * 0.30, 220);
+    var gradH = Math.min(H * 0.28, 200);
     var gradX = (W - gradW) / 2 - 20;
-    var gradY = H * 0.12;
+    var gradY = H * 0.11;
 
-    if (!window.__gradCanvasCache || window.__gradCanvasCache.width !== gradW || window.__gradCanvasCache.height !== gradH) {
+    // кэш — обновляется при смене размера ИЛИ оттенка
+    if (!window.__gradCanvasCache ||
+        window.__gradCanvasCache.width !== gradW ||
+        window.__gradCanvasCache.height !== gradH ||
+        window.__gradHue !== picker.hue) {
+
       window.__gradCanvasCache = document.createElement("canvas");
       window.__gradCanvasCache.width = gradW;
       window.__gradCanvasCache.height = gradH;
@@ -670,14 +684,15 @@ var game = {
       }
       gctx.putImageData(img, 0, 0);
     }
+    window.__gradHue = picker.hue;
+
     ctx.drawImage(window.__gradCanvasCache, gradX, gradY, gradW, gradH);
 
-    // рамка
     ctx.strokeStyle = "#606070";
     ctx.lineWidth = 2;
     ctx.strokeRect(gradX, gradY, gradW, gradH);
 
-    // маркер выбранного цвета на градиенте
+    // маркер на градиенте
     var markX = gradX + picker.sat * gradW;
     var markY = gradY + (1 - picker.val) * gradH;
     ctx.beginPath();
@@ -693,13 +708,12 @@ var game = {
 
     window.__pickerGrad = { x: gradX, y: gradY, w: gradW, h: gradH };
 
-    // ---------- ПОЛЗУНОК ЯРКОСТИ ----------
+    // ---- ПОЛЗУНОК ЯРКОСТИ ----
     var barW = 40;
     var barH = gradH;
     var barX = gradX + gradW + 20;
     var barY = gradY;
 
-    // градиент яркости — от чёрного к полному цвету
     var grad = ctx.createLinearGradient(0, barY, 0, barY + barH);
     var topRgb = hsvToRgb(picker.hue, picker.sat, 1);
     grad.addColorStop(0, "rgb(" + topRgb[0] + "," + topRgb[1] + "," + topRgb[2] + ")");
@@ -711,7 +725,6 @@ var game = {
     ctx.lineWidth = 2;
     ctx.strokeRect(barX, barY, barW, barH);
 
-    // маркер яркости
     var valY = barY + (1 - picker.val) * barH;
     ctx.beginPath();
     ctx.moveTo(barX - 6, valY);
@@ -729,37 +742,55 @@ var game = {
 
     window.__pickerBar = { x: barX, y: barY, w: barW, h: barH };
 
-    // ---------- ПРЕВЬЮ ТЕКУЩЕГО ЦВЕТА ----------
-    var previewSize = 50;
-    var previewX = 20;
-    var previewY = gradY;
-    ctx.fillStyle = bgColor || "#000000";
-    ctx.fillRect(previewX, previewY, previewSize, previewSize);
-    ctx.strokeStyle = "#ffffff";
+    // ---- HUE-ПОЛОСА ----
+    var hueW = gradW + 20 + barW;
+    var hueH = 24;
+    var hueX = gradX;
+    var hueY = gradY + gradH + 14;
+
+    var hueGrad = ctx.createLinearGradient(hueX, 0, hueX + hueW, 0);
+    hueGrad.addColorStop(0.000, "#ff0000");
+    hueGrad.addColorStop(0.167, "#ffff00");
+    hueGrad.addColorStop(0.333, "#00ff00");
+    hueGrad.addColorStop(0.500, "#00ffff");
+    hueGrad.addColorStop(0.667, "#0000ff");
+    hueGrad.addColorStop(0.833, "#ff00ff");
+    hueGrad.addColorStop(1.000, "#ff0000");
+    ctx.fillStyle = hueGrad;
+    ctx.fillRect(hueX, hueY, hueW, hueH);
+
+    ctx.strokeStyle = "#606070";
     ctx.lineWidth = 2;
-    ctx.strokeRect(previewX, previewY, previewSize, previewSize);
+    ctx.strokeRect(hueX, hueY, hueW, hueH);
 
-    // ---------- ПОЛЕ HEX + КНОПКА ----------
-    var hexBtnW = Math.min(W - 80, 260);
-    var hexBtnH = 50;
-    var hexBtnX = (W - hexBtnW) / 2;
-    var hexBtnY = gradY + gradH + 20;
+    var hueMarkX = hueX + (picker.hue / 360) * hueW;
+    ctx.beginPath();
+    ctx.arc(hueMarkX, hueY + hueH / 2, 10, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 2;
+    ctx.stroke();
 
-    var bHex = { x: hexBtnX, y: hexBtnY, w: hexBtnW, h: hexBtnH,
+    window.__pickerHue = { x: hueX, y: hueY, w: hueW, h: hueH };
+
+    // ---- КНОПКИ ----
+    var btnW = Math.min(W - 80, 260);
+    var btnX = (W - btnW) / 2;
+    var btnY = hueY + hueH + 24;
+
+    var bHex = { x: btnX, y: btnY, w: btnW, h: 50,
                  text: "Ввести HEX: " + (bgColor || "#000000"), id: "hex" };
 
-    // ---------- КНОПКА ФОТО ----------
-    var bUp = { x: hexBtnX, y: hexBtnY + 65, w: hexBtnW, h: 55,
+    var bUp = { x: btnX, y: btnY + 62, w: btnW, h: 55,
                 text: "Загрузить фото", id: "upload" };
 
-    // ---------- КНОПКА НАЗАД ----------
-    var bBack = { x: hexBtnX, y: hexBtnY + 130, w: hexBtnW, h: 55,
+    var bBack = { x: btnX, y: btnY + 127, w: btnW, h: 55,
                   text: "Назад", id: "back" };
 
     this.buttons = [bHex, bUp, bBack];
     drawButtons(this.buttons);
 
-    // невидимый label поверх кнопки "Загрузить фото"
     showFileLabel(bUp.x, bUp.y, bUp.w, bUp.h);
   },
 
@@ -770,18 +801,46 @@ var game = {
     for (var i = 0; i < this.fakeSquares.length; i++) this.fakeSquares[i].draw();
     this.square.draw();
 
+    // счёт и время — в левом верхнем углу, двумя строчками
     ctx.fillStyle = "#f0f0f0";
-    ctx.font = "bold 26px Arial";
+    ctx.font = "bold 24px Arial";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillText("Очки: " + this.score, 20, 20);
 
-    ctx.textAlign = "right";
+    ctx.font = "20px Arial";
     if (this.mode === "timed") {
-      ctx.fillText("Время: " + Math.ceil(this.timeLeft), W - 20, 20);
+      ctx.fillText("Время: " + Math.ceil(this.timeLeft), 20, 52);
     } else {
-      ctx.fillText("Промахи: " + this.misses + "/3", W - 20, 20);
+      ctx.fillText("Промахи: " + this.misses + "/3", 20, 52);
     }
+
+    // кнопка-крестик в правом верхнем углу
+    var exitSize = 48;
+    var exitX = W - exitSize - 16;
+    var exitY = 16;
+
+    var hover = game.mouse.x >= exitX && game.mouse.x <= exitX + exitSize &&
+                game.mouse.y >= exitY && game.mouse.y <= exitY + exitSize;
+
+    ctx.fillStyle = hover ? "#3c3c50" : "#232332";
+    ctx.fillRect(exitX, exitY, exitSize, exitSize);
+
+    ctx.strokeStyle = "#50505a";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(exitX, exitY, exitSize, exitSize);
+
+    ctx.strokeStyle = "#f0f0f0";
+    ctx.lineWidth = 3;
+    var pad = 14;
+    ctx.beginPath();
+    ctx.moveTo(exitX + pad, exitY + pad);
+    ctx.lineTo(exitX + exitSize - pad, exitY + exitSize - pad);
+    ctx.moveTo(exitX + exitSize - pad, exitY + pad);
+    ctx.lineTo(exitX + pad, exitY + exitSize - pad);
+    ctx.stroke();
+
+    window.__exitButton = { x: exitX, y: exitY, w: exitSize, h: exitSize };
   },
 
   drawGameOver: function() {
