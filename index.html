@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Поймай меня</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
 <style>
   @font-face {
     font-family: "Cascadia Code";
@@ -68,17 +68,13 @@
 var canvas = document.getElementById("game");
 var ctx = canvas.getContext("2d");
 
-// Ждём загрузки шрифта
 var FONT_FAMILY = '"Cascadia Code", Consolas, Monaco, monospace';
-var fontLoaded = false;
 
 if (document.fonts && document.fonts.load) {
   Promise.all([
     document.fonts.load('20px "Cascadia Code"'),
     document.fonts.load('bold 20px "Cascadia Code"')
-  ]).then(function() {
-    fontLoaded = true;
-  }).catch(function(){});
+  ]).catch(function(){});
 }
 
 var W, H;
@@ -99,9 +95,84 @@ var SETTINGS = "settings";
 var SETTINGS_BG = "settings_bg";
 var SETTINGS_SQUARE = "settings_square";
 var SETTINGS_SOUND = "settings_sound";
+var SETTINGS_DIFFICULTY = "settings_difficulty";
 
 var COLORS = ["#ff5050", "#50ff78", "#50a0ff", "#ffdc50", "#dc50ff", "#50fff0"];
 
+// ---------- СЛОЖНОСТИ ----------
+var DIFFICULTIES = [
+  {
+    id: "easy",
+    name: "Лёгкая",
+    sizeStart: 80,
+    sizeMin: 25,
+    sizeStep: 1.2,
+    speedMul: 0.85,
+    boostDuration: 0.4,
+    boostMultiplier: 1.7
+  },
+  {
+    id: "medium",
+    name: "Средняя",
+    sizeStart: 70,
+    sizeMin: 20,
+    sizeStep: 1.5,
+    speedMul: 1.0,
+    boostDuration: 0.6,
+    boostMultiplier: 2.0
+  },
+  {
+    id: "hard",
+    name: "Сложная",
+    sizeStart: 60,
+    sizeMin: 14,
+    sizeStep: 2.0,
+    speedMul: 1.2,
+    boostDuration: 0.8,
+    boostMultiplier: 2.3
+  },
+  {
+    id: "hardcore",
+    name: "Хардкор",
+    sizeStart: 50,
+    sizeMin: 10,
+    sizeStep: 2.5,
+    speedMul: 1.4,
+    boostDuration: 1.0,
+    boostMultiplier: 2.5
+  }
+];
+
+var currentDifficulty = "medium";
+try {
+  var savedDiff = localStorage.getItem("catchme_difficulty");
+  if (savedDiff) {
+    for (var di = 0; di < DIFFICULTIES.length; di++) {
+      if (DIFFICULTIES[di].id === savedDiff) { currentDifficulty = savedDiff; break; }
+    }
+  }
+} catch(e) {}
+
+function getDifficulty() {
+  for (var i = 0; i < DIFFICULTIES.length; i++) {
+    if (DIFFICULTIES[i].id === currentDifficulty) return DIFFICULTIES[i];
+  }
+  return DIFFICULTIES[1];
+}
+
+// рекорды по сложностям
+function loadRecord(diffId) {
+  try {
+    var v = localStorage.getItem("catchme_record_" + diffId);
+    if (v === null) return 0;
+    return parseInt(v) || 0;
+  } catch(e) { return 0; }
+}
+function saveRecord(diffId, value) {
+  try { localStorage.setItem("catchme_record_" + diffId, String(value)); } catch(e) {}
+}
+
+// ---------- ПРОГРЕССИЯ ----------
 var LEVELS = [
   { score: 0,  speed: 1.2, behavior: "run" },
   { score: 6,  speed: 1.6, behavior: "boost" },
@@ -115,12 +186,6 @@ var TELEPORT_RADIUS = 70;
 var TELEPORT_COOLDOWN = 2.5;
 var TELEPORT_MIN_DIST = 200;
 var BOOST_INTERVAL = 2.0;
-var BOOST_DURATION = 0.6;
-var BOOST_MULTIPLIER = 2.0;
-
-var SIZE_START = 70;
-var SIZE_MIN = 20;
-var SIZE_STEP = 1.5;
 
 var exitButtonZone = null;
 
@@ -131,100 +196,79 @@ var SPAWN_DURATION = 0.15;
 
 var MISS_BLINK_DURATION = 0.4;
 var MISS_FADE_DURATION = 0.3;
-var MISS_TOTAL = MISS_BLINK_DURATION + MISS_FADE_DURATION;
 
 var GAMEOVER_FADE_DURATION = 0.5;
 
-// ---------- СООБЩЕНИЯ ПО СЧЁТУ ----------
-// массив объектов: { max: N, messages: [...] }
-// ищем подходящий диапазон по счёту
+// ---------- СООБЩЕНИЯ ----------
 var MESSAGE_BUCKETS = [
-  {
-    minScore: 0, maxScore: 2,
-    messages: [
-      "Ты только начал. И уже продул.",
-      "Разминка. Квадратик только разогревается.",
-      "Он даже не устал.",
-      "Может, ещё раз? Или сдаёшься?",
-      "Дальше будет сложнее. Серьёзно.",
-      "Он быстрее тебя. И умнее.",
-      "Первая попытка — комом.",
-      "Не расстраивайся. Всё равно поймаешь.",
-      "Серьёзно? И это всё, на что ты способен?"
-    ]
-  },
-  {
-    minScore: 3, maxScore: 7,
-    messages: [
-      "Уже что-то. Но не то.",
-      "Пробуй ещё. И ещё.",
-      "Есть контакт.",
-      "Ты его задел. Он это запомнит.",
-      "Неплохо. Для начала.",
-      "Не стой на месте — он не стоит.",
-      "Ты начинаешь понимать.",
-      "Он уважает твои попытки.",
-      "Ещё чуть-чуть — и пойдёт.",
-      "Тренировка. Ещё тренировка.",
-      "Может, тебе лучше в шахматы? Там медленнее."
-    ]
-  },
-  {
-    minScore: 8, maxScore: 14,
-    messages: [
-      "Хорошо идёшь. Но он ещё в форме.",
-      "Ещё чуть-чуть до хорошего результата.",
-      "Ты в форме сегодня.",
-      "Он начал нервничать.",
-      "Это уже не разминка.",
-      "Он чувствует твоё дыхание.",
-      "Продолжай в том же духе.",
-      "Ты попадаешь чаще, чем мажешь.",
-      "Он не ожидал такого.",
-      "Уже интересно.",
-      "Ты его раздражаешь.",
-      "Ещё немного — и он сдастся.",
-      "Уже лучше. Но всё ещё стыдно."
-    ]
-  },
-  {
-    minScore: 15, maxScore: 24,
-    messages: [
-      "Отлично. Он в панике.",
-      "Ты разогнался.",
-      "Ещё быстрее. Он не догонит.",
-      "Ты его пугаешь.",
-      "Хороший темп. Не сбавляй.",
-      "Он на грани. Ты близко.",
-      "Ты в ударе.",
-      "Он уже не понимает, что происходит.",
-      "Ещё одна попытка — и рекорд.",
-      "Он на тебя зол. Но это его проблемы.",
-      "Неплохо для того, кто не умеет играть."
-    ]
-  },
-  {
-    minScore: 25, maxScore: 39,
-    messages: [
-      "Мастер. Он тебя боится.",
-      "Ты машина.",
-      "Он пытался — не получилось.",
-      "Ты играешь, а он мучается.",
-      "Ты его сломал.",
-      "Он сдаётся. Медленно, но сдаётся.",
-      "Хвастаться будешь, когда 40 наберёшь."
-    ]
-  },
-  {
-    minScore: 40, maxScore: Infinity,
-    messages: [
-      "Легенда. Он никогда не забудет это.",
-      "Игра сдаётся. Ты победил.",
-      "Такого не было никогда.",
-      "Ты — тот, кого он боится во сне.",
-      "Ты выиграл. Но всё равно проиграл — в жизни."
-    ]
-  }
+  { minScore: 0, maxScore: 2, messages: [
+    "Ты только начал. И уже продул.",
+    "Разминка. Квадратик только разогревается.",
+    "Он даже не устал.",
+    "Может, ещё раз? Или сдаёшься?",
+    "Дальше будет сложнее. Серьёзно.",
+    "Он быстрее тебя. И умнее.",
+    "Первая попытка — комом.",
+    "Не расстраивайся. Всё равно поймаешь.",
+    "Серьёзно? И это всё, на что ты способен?"
+  ]},
+  { minScore: 3, maxScore: 7, messages: [
+    "Уже что-то. Но не то.",
+    "Пробуй ещё. И ещё.",
+    "Есть контакт.",
+    "Ты его задел. Он это запомнит.",
+    "Неплохо. Для начала.",
+    "Не стой на месте — он не стоит.",
+    "Ты начинаешь понимать.",
+    "Он уважает твои попытки.",
+    "Ещё чуть-чуть — и пойдёт.",
+    "Тренировка. Ещё тренировка.",
+    "Может, тебе лучше в шахматы? Там медленнее."
+  ]},
+  { minScore: 8, maxScore: 14, messages: [
+    "Хорошо идёшь. Но он ещё в форме.",
+    "Ещё чуть-чуть до хорошего результата.",
+    "Ты в форме сегодня.",
+    "Он начал нервничать.",
+    "Это уже не разминка.",
+    "Он чувствует твоё дыхание.",
+    "Продолжай в том же духе.",
+    "Ты попадаешь чаще, чем мажешь.",
+    "Он не ожидал такого.",
+    "Уже интересно.",
+    "Ты его раздражаешь.",
+    "Ещё немного — и он сдастся.",
+    "Уже лучше. Но всё ещё стыдно."
+  ]},
+  { minScore: 15, maxScore: 24, messages: [
+    "Отлично. Он в панике.",
+    "Ты разогнался.",
+    "Ещё быстрее. Он не догонит.",
+    "Ты его пугаешь.",
+    "Хороший темп. Не сбавляй.",
+    "Он на грани. Ты близко.",
+    "Ты в ударе.",
+    "Он уже не понимает, что происходит.",
+    "Ещё одна попытка — и рекорд.",
+    "Он на тебя зол. Но это его проблемы.",
+    "Неплохо для того, кто не умеет играть."
+  ]},
+  { minScore: 25, maxScore: 39, messages: [
+    "Мастер. Он тебя боится.",
+    "Ты машина.",
+    "Он пытался — не получилось.",
+    "Ты играешь, а он мучается.",
+    "Ты его сломал.",
+    "Он сдаётся. Медленно, но сдаётся.",
+    "Хвастаться будешь, когда 40 наберёшь."
+  ]},
+  { minScore: 40, maxScore: Infinity, messages: [
+    "Легенда. Он никогда не забудет это.",
+    "Игра сдаётся. Ты победил.",
+    "Такого не было никогда.",
+    "Ты — тот, кого он боится во сне.",
+    "Ты выиграл. Но всё равно проиграл — в жизни."
+  ]}
 ];
 
 function pickMessage(score) {
@@ -747,7 +791,6 @@ function spawnParticles(x, y, baseSize, color, useImage) {
     var size = 3 + Math.random() * 4;
     var srcX = Math.random();
     var srcY = Math.random();
-
     particles.push({
       x: x, y: y,
       vx: Math.cos(angle) * speed,
@@ -803,7 +846,8 @@ function drawParticles() {
 
 // ---------- КВАДРАТИК ----------
 function Square() {
-  this.baseSize = SIZE_START;
+  var d = getDifficulty();
+  this.baseSize = d.sizeStart;
   this.x = Math.random() * (W - 100) + 50;
   this.y = Math.random() * (H - 100) + 50;
   this.color = squareColor || COLORS[Math.floor(Math.random() * COLORS.length)];
@@ -838,6 +882,8 @@ Square.prototype.startMiss = function() {
 
 Square.prototype.update = function(mx, my, score, dt) {
   if (!dt) dt = 1/60;
+
+  var d = getDifficulty();
 
   if (this.popPhase !== "none") {
     this.popTime += dt;
@@ -880,11 +926,11 @@ Square.prototype.update = function(mx, my, score, dt) {
   for (var i = 0; i < LEVELS.length; i++) {
     if (score >= LEVELS[i].score) current = LEVELS[i];
   }
-  this.speed = current.speed;
+  this.speed = current.speed * d.speedMul;
   this.behavior = this.fake ? "run" : current.behavior;
 
   if (!this.fake) {
-    this.baseSize = Math.max(SIZE_MIN, SIZE_START - score * SIZE_STEP);
+    this.baseSize = Math.max(d.sizeMin, d.sizeStart - score * d.sizeStep);
   }
 
   if (this.teleportCooldown > 0) this.teleportCooldown -= dt;
@@ -893,13 +939,13 @@ Square.prototype.update = function(mx, my, score, dt) {
   if (this.behavior === "boost") {
     this.boostTimer -= dt;
     if (this.boostTimer <= 0 && this.boostActive <= 0) {
-      this.boostActive = BOOST_DURATION;
+      this.boostActive = d.boostDuration;
       this.boostTimer = BOOST_INTERVAL;
       if (!this.fake) soundBoost();
     }
     if (this.boostActive > 0) {
       this.boostActive -= dt;
-      boostFactor = BOOST_MULTIPLIER;
+      boostFactor = d.boostMultiplier;
     }
   }
 
@@ -1022,19 +1068,18 @@ Square.prototype.draw = function() {
   var x = this.x - half;
   var y = this.y - half;
 
-  // подложка — 3 пикселя со всех сторон
   var PAD = 3;
   var padX = x - PAD;
   var padY = y - PAD;
   var padSize = size + PAD * 2;
 
-  // тень — только у настоящего
+  // тень — только у настоящего, светлее
   if (!this.fake) {
     ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
-    ctx.shadowBlur = 14;
-    ctx.shadowOffsetX = 4;
-    ctx.shadowOffsetY = 5;
+    ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetX = 3;
+    ctx.shadowOffsetY = 4;
 
     if (sqImage) {
       ctx.drawImage(sqImage, padX, padY, padSize, padSize);
@@ -1046,7 +1091,7 @@ Square.prototype.draw = function() {
     ctx.restore();
   }
 
-  // подложка без тени (сама)
+  // подложка
   if (sqImage) {
     ctx.drawImage(sqImage, padX, padY, padSize, padSize);
     ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
@@ -1065,7 +1110,6 @@ Square.prototype.draw = function() {
     ctx.fillRect(x, y, size, size);
   }
 
-  // красное мигание
   if (redFlash > 0) {
     ctx.fillStyle = "rgba(255, 0, 0, " + redFlash + ")";
     ctx.fillRect(x, y, size, size);
@@ -1140,10 +1184,14 @@ var game = {
     this.state = GAME_OVER;
     this.gameOverTime = 0;
     this.gameOverMessage = pickMessage(this.score);
-    if (this.score > this.record) {
-      this.record = this.score;
-      try { localStorage.setItem("catchme_record", this.record); } catch(e) {}
+
+    var d = getDifficulty();
+    var record = loadRecord(d.id);
+    if (this.score > record) {
+      saveRecord(d.id, this.score);
     }
+    this.record = loadRecord(d.id);
+
     soundGameOver();
     setMusicMode("gameover");
   },
@@ -1221,8 +1269,25 @@ var game = {
           if (sb.id === "bg") this.state = SETTINGS_BG;
           if (sb.id === "square") this.state = SETTINGS_SQUARE;
           if (sb.id === "sound") this.state = SETTINGS_SOUND;
+          if (sb.id === "difficulty") this.state = SETTINGS_DIFFICULTY;
           if (sb.id === "back") this.state = MENU;
           return;
+        }
+      }
+      return;
+    }
+
+    if (this.state === SETTINGS_DIFFICULTY) {
+      for (var dk = 0; dk < this.buttons.length; dk++) {
+        var db = this.buttons[dk];
+        if (px >= db.x && px <= db.x + db.w && py >= db.y && py <= db.y + db.h) {
+          soundClick();
+          if (db.id === "back") { this.state = SETTINGS; return; }
+          if (db.id.indexOf("diff_") === 0) {
+            currentDifficulty = db.id.substring(5);
+            try { localStorage.setItem("catchme_difficulty", currentDifficulty); } catch(e) {}
+            return;
+          }
         }
       }
       return;
@@ -1305,7 +1370,7 @@ var game = {
         } while (
           attempts < 20 &&
           (Math.sqrt((newX-px)*(newX-px)+(newY-py)*(newY-py)) < 150 ||
-           overlapsExitZone(newX, newY, SIZE_START))
+           overlapsExitZone(newX, newY, getDifficulty().sizeStart))
         );
         this.square = new Square();
         this.square.x = newX;
@@ -1337,7 +1402,6 @@ var game = {
     }
 
     if (this.state === GAME_OVER) {
-      // пока не появился полностью — игнорируем кнопки
       if (this.gameOverTime < GAMEOVER_FADE_DURATION) return;
 
       for (var j = 0; j < this.buttons.length; j++) {
@@ -1376,6 +1440,13 @@ var game = {
       ctx.fillRect(0, 0, W, H);
     }
 
+    // затемнение фона на экране окончания (появляется вместе с экраном)
+    if (this.state === GAME_OVER) {
+      var progress = Math.min(1, this.gameOverTime / GAMEOVER_FADE_DURATION);
+      ctx.fillStyle = "rgba(0, 0, 0, " + (0.25 * progress) + ")";
+      ctx.fillRect(0, 0, W, H);
+    }
+
     if (this.state === MENU) this.drawMenu();
     else if (this.state === PLAYING) this.drawPlaying();
     else if (this.state === GAME_OVER) this.drawGameOver();
@@ -1383,6 +1454,7 @@ var game = {
     else if (this.state === SETTINGS_BG) this.drawSettingsBg();
     else if (this.state === SETTINGS_SQUARE) this.drawSettingsSquare();
     else if (this.state === SETTINGS_SOUND) this.drawSettingsSound();
+    else if (this.state === SETTINGS_DIFFICULTY) this.drawSettingsDifficulty();
   },
 
   drawMenu: function() {
@@ -1395,12 +1467,7 @@ var game = {
     ctx.font = "bold 52px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("ПОЙМАЙ МЕНЯ", W / 2, H * 0.22);
-
-    // Рекорд — белый, как заголовок
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "20px " + FONT_FAMILY;
-    ctx.fillText("Рекорд: " + this.record, W / 2, H * 0.32);
+    ctx.fillText("ПОЙМАЙ МЕНЯ", W / 2, H * 0.25);
 
     var bw = Math.min(320, W - 60);
     var bx = (W - bw) / 2;
@@ -1422,17 +1489,68 @@ var game = {
     ctx.font = "bold 44px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("НАСТРОЙКИ", W / 2, H * 0.14);
+    ctx.fillText("НАСТРОЙКИ", W / 2, H * 0.13);
 
     var bw = Math.min(320, W - 60);
     var bx = (W - bw) / 2;
 
-    var bBg = { x: bx, y: H * 0.28, w: bw, h: 55, text: "Фон", id: "bg" };
-    var bSq = { x: bx, y: H * 0.28 + 70, w: bw, h: 55, text: "Квадратик", id: "square" };
-    var bSnd = { x: bx, y: H * 0.28 + 140, w: bw, h: 55, text: "Звук", id: "sound" };
-    var bBack = { x: bx, y: H * 0.28 + 240, w: bw, h: 55, text: "Назад", id: "back" };
-    this.buttons = [bBg, bSq, bSnd, bBack];
+    var bBg = { x: bx, y: H * 0.26, w: bw, h: 55, text: "Фон", id: "bg" };
+    var bSq = { x: bx, y: H * 0.26 + 68, w: bw, h: 55, text: "Квадратик", id: "square" };
+    var bSnd = { x: bx, y: H * 0.26 + 136, w: bw, h: 55, text: "Звук", id: "sound" };
+    var bDiff = { x: bx, y: H * 0.26 + 204, w: bw, h: 55, text: "Сложность", id: "difficulty" };
+    var bBack = { x: bx, y: H * 0.26 + 290, w: bw, h: 55, text: "Назад", id: "back" };
+    this.buttons = [bBg, bSq, bSnd, bDiff, bBack];
     drawButtons(this.buttons);
+  },
+
+  drawSettingsDifficulty: function() {
+    exitButtonZone = null;
+    this.buttons = [];
+    hideFileLabel();
+    hideHexInput();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 40px " + FONT_FAMILY;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("СЛОЖНОСТЬ", W / 2, H * 0.10);
+
+    var bw = Math.min(320, W - 60);
+    var bx = (W - bw) / 2;
+    var btnH = 55;
+    var gap = 12;
+    var startY = H * 0.20;
+
+    this.buttons = [];
+
+    for (var i = 0; i < DIFFICULTIES.length; i++) {
+      var d = DIFFICULTIES[i];
+      var isActive = (d.id === currentDifficulty);
+      var rec = loadRecord(d.id);
+      var label = d.name;
+      if (isActive) label += "   ✓";
+
+      var by = startY + i * (btnH + gap + 22);
+
+      // кнопка
+      var btn = { x: bx, y: by, w: bw, h: btnH, text: label, id: "diff_" + d.id };
+      this.buttons.push(btn);
+      drawButtons([btn]);
+
+      // рекорд под кнопкой
+      ctx.fillStyle = "#9090a0";
+      ctx.font = "15px " + FONT_FAMILY;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText("Рекорд: " + rec, W / 2, by + btnH + 4);
+    }
+
+    // кнопка назад
+    var backY = startY + DIFFICULTIES.length * (btnH + gap + 22) + 10;
+    if (backY + btnH > H - 20) backY = H - btnH - 20;
+    var bBack = { x: bx, y: backY, w: bw, h: btnH, text: "Назад", id: "back" };
+    this.buttons.push(bBack);
+    drawButtons([bBack]);
   },
 
   drawSettingsBg: function() {
@@ -1820,7 +1938,6 @@ var game = {
     hideFileLabel();
     hideHexInput();
 
-    // прогресс появления 0..1
     var progress = Math.min(1, this.gameOverTime / GAMEOVER_FADE_DURATION);
 
     ctx.globalAlpha = progress;
@@ -1844,7 +1961,6 @@ var game = {
 
     ctx.globalAlpha = 1;
 
-    // кнопки — только когда появление завершено
     if (progress >= 1) {
       var bw = Math.min(320, W - 60);
       var bx = (W - bw) / 2;
@@ -1865,8 +1981,8 @@ function drawButtons(list) {
                 game.mouse.y >= b.y && game.mouse.y <= b.y + b.h;
 
     ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
-    ctx.shadowBlur = 12;
+    ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+    ctx.shadowBlur = 8;
     ctx.shadowOffsetX = 3;
     ctx.shadowOffsetY = 4;
 
@@ -2089,10 +2205,6 @@ function loop() {
 }
 
 // ---------- СТАРТ ----------
-try {
-  game.record = parseInt(localStorage.getItem("catchme_record") || "0");
-} catch(e) { game.record = 0; }
-
 game.reset();
 initBg();
 initSqImage();
