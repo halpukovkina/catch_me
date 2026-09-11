@@ -1278,9 +1278,8 @@ var game = {
     drawButtons([bToggle]);
 
     // ===== ЭФФЕКТЫ =====
-    // тонкая шкала 8px, кружок 18px радиус
-    var trackH = 8;
-    var knobR = 18;
+    var trackH = 10;    // толщина шкалы
+    var knobR = 18;     // радиус кружка
     var barY = H * 0.42;
     var barW = bw;
 
@@ -1290,24 +1289,19 @@ var game = {
     ctx.textBaseline = "bottom";
     ctx.fillText("Громкость эффектов: " + Math.round(fxVolume * 100) + "%", W / 2, barY - knobR - 6);
 
-    // трек
     ctx.fillStyle = "#3a3a4a";
     ctx.fillRect(bx, barY, barW, trackH);
-    // заполнение белым
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(bx, barY, barW * fxVolume, trackH);
-    // рамка
     ctx.strokeStyle = "#606070"; ctx.lineWidth = 1;
     ctx.strokeRect(bx + 0.5, barY + 0.5, barW - 1, trackH - 1);
 
-    // кружок
     var knobX = bx + barW * fxVolume;
     var knobY = barY + trackH / 2;
     ctx.beginPath(); ctx.arc(knobX, knobY, knobR, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff"; ctx.fill();
     ctx.strokeStyle = "#a0a0b0"; ctx.lineWidth = 2; ctx.stroke();
 
-    // зона для drag — вся область вокруг: x±20, y ±40
     window.__fxBar = { x: bx, y: barY, w: barW, h: trackH };
 
     // ===== МУЗЫКА =====
@@ -1457,7 +1451,8 @@ function posFromEvent(e) {
 
 // --- определение цели перетаскивания ---
 function detectDragTarget(px, py) {
-  var PAD_Y = 30;   // сколько пикселей вверх/вниз вокруг трека считается попаданием
+  // для ползунков звука — зона по X широкая, по Y средняя (вокруг тонкой шкалы)
+  var PAD_Y = 30;
   var PAD_X = 20;
 
   if (game.state === SETTINGS_SOUND) {
@@ -1510,26 +1505,26 @@ function detectDragTarget(px, py) {
   return null;
 }
 
-// --- функция, превращающая координату Y в значение громкости ---
-// работает предсказуемо: выше трека = 1, ниже = 0, внутри = пропорционально
-function yToVolume(y, barY, trackH) {
-  var top = barY;
-  var bottom = barY + trackH;
-  if (y <= top) return 1;
-  if (y >= bottom) return 0;
-  return 1 - (y - top) / trackH;
+// --- превращение X в значение громкости ---
+// выше/левее шкалы = 1, правее = 0, внутри = пропорционально
+function xToVolume(x, barX, trackW) {
+  var left = barX;
+  var right = barX + trackW;
+  if (x <= left) return 0;
+  if (x >= right) return 1;
+  return (x - left) / trackW;
 }
 
 function handleDrag(px, py) {
   if (dragging === "fx" && window.__fxBar) {
     var fb = window.__fxBar;
-    fxVolume = yToVolume(py, fb.y, fb.h);
+    fxVolume = xToVolume(px, fb.x, fb.w);
     try { localStorage.setItem("catchme_fxvol", fxVolume); } catch(e) {}
     return;
   }
   if (dragging === "music" && window.__musicBar) {
     var mb = window.__musicBar;
-    musicVolume = yToVolume(py, mb.y, mb.h);
+    musicVolume = xToVolume(px, mb.x, mb.w);
     try { localStorage.setItem("catchme_musicvol", musicVolume); } catch(e) {}
     if (musicVolume <= 0) stopMusic();
     else ensureMusicPlaying();
