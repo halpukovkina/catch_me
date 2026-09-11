@@ -4,14 +4,28 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Поймай меня</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
 <style>
+  @font-face {
+    font-family: "Cascadia Code";
+    src: url("https://cdn.jsdelivr.net/gh/microsoft/cascadia-code@main/fonts/ttf/CascadiaCode.ttf") format("truetype");
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Cascadia Code";
+    src: url("https://cdn.jsdelivr.net/gh/microsoft/cascadia-code@main/fonts/ttf/CascadiaCode-Bold.ttf") format("truetype");
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
     width: 100%; height: 100%;
     background: #0a0a0f;
     overflow: hidden;
-    font-family: Arial, sans-serif;
+    font-family: "Cascadia Code", Consolas, Monaco, monospace;
     user-select: none;
   }
   canvas { display: block; touch-action: none; }
@@ -27,7 +41,7 @@
     display: none;
     z-index: 200;
     font-size: 22px;
-    font-family: monospace;
+    font-family: "Cascadia Code", Consolas, monospace;
     padding: 8px 12px;
     border: 2px solid #5050a0;
     border-radius: 8px;
@@ -53,6 +67,19 @@
 <script>
 var canvas = document.getElementById("game");
 var ctx = canvas.getContext("2d");
+
+// Ждём загрузки шрифта
+var FONT_FAMILY = '"Cascadia Code", Consolas, Monaco, monospace';
+var fontLoaded = false;
+
+if (document.fonts && document.fonts.load) {
+  Promise.all([
+    document.fonts.load('20px "Cascadia Code"'),
+    document.fonts.load('bold 20px "Cascadia Code"')
+  ]).then(function() {
+    fontLoaded = true;
+  }).catch(function(){});
+}
 
 var W, H;
 function resize() {
@@ -80,7 +107,7 @@ var LEVELS = [
   { score: 6,  speed: 1.6, behavior: "boost" },
   { score: 12, speed: 1.8, behavior: "disguise" },
   { score: 20, speed: 2.0, behavior: "teleport" },
-  { score: 26, speed: 2.2, behavior: "multiply" },
+  { score: 18, speed: 2.2, behavior: "multiply" },
   { score: 32, speed: 2.4, behavior: "hunt" }
 ];
 
@@ -97,16 +124,118 @@ var SIZE_STEP = 1.5;
 
 var exitButtonZone = null;
 
-// ---------- АНИМАЦИЯ ПОПАДАНИЯ ----------
 var POP_DURATION_IN = 0.08;
 var POP_DURATION_OUT = 0.12;
 var POP_SCALE_MAX = 1.5;
 var SPAWN_DURATION = 0.15;
 
-// ---------- АНИМАЦИЯ ПРОМАХА (клик по ложному) ----------
-var MISS_BLINK_DURATION = 0.4; // 2 мигания за это время
+var MISS_BLINK_DURATION = 0.4;
 var MISS_FADE_DURATION = 0.3;
 var MISS_TOTAL = MISS_BLINK_DURATION + MISS_FADE_DURATION;
+
+var GAMEOVER_FADE_DURATION = 0.5;
+
+// ---------- СООБЩЕНИЯ ПО СЧЁТУ ----------
+// массив объектов: { max: N, messages: [...] }
+// ищем подходящий диапазон по счёту
+var MESSAGE_BUCKETS = [
+  {
+    minScore: 0, maxScore: 2,
+    messages: [
+      "Ты только начал. И уже продул.",
+      "Разминка. Квадратик только разогревается.",
+      "Он даже не устал.",
+      "Может, ещё раз? Или сдаёшься?",
+      "Дальше будет сложнее. Серьёзно.",
+      "Он быстрее тебя. И умнее.",
+      "Первая попытка — комом.",
+      "Не расстраивайся. Всё равно поймаешь.",
+      "Серьёзно? И это всё, на что ты способен?"
+    ]
+  },
+  {
+    minScore: 3, maxScore: 7,
+    messages: [
+      "Уже что-то. Но не то.",
+      "Пробуй ещё. И ещё.",
+      "Есть контакт.",
+      "Ты его задел. Он это запомнит.",
+      "Неплохо. Для начала.",
+      "Не стой на месте — он не стоит.",
+      "Ты начинаешь понимать.",
+      "Он уважает твои попытки.",
+      "Ещё чуть-чуть — и пойдёт.",
+      "Тренировка. Ещё тренировка.",
+      "Может, тебе лучше в шахматы? Там медленнее."
+    ]
+  },
+  {
+    minScore: 8, maxScore: 14,
+    messages: [
+      "Хорошо идёшь. Но он ещё в форме.",
+      "Ещё чуть-чуть до хорошего результата.",
+      "Ты в форме сегодня.",
+      "Он начал нервничать.",
+      "Это уже не разминка.",
+      "Он чувствует твоё дыхание.",
+      "Продолжай в том же духе.",
+      "Ты попадаешь чаще, чем мажешь.",
+      "Он не ожидал такого.",
+      "Уже интересно.",
+      "Ты его раздражаешь.",
+      "Ещё немного — и он сдастся.",
+      "Уже лучше. Но всё ещё стыдно."
+    ]
+  },
+  {
+    minScore: 15, maxScore: 24,
+    messages: [
+      "Отлично. Он в панике.",
+      "Ты разогнался.",
+      "Ещё быстрее. Он не догонит.",
+      "Ты его пугаешь.",
+      "Хороший темп. Не сбавляй.",
+      "Он на грани. Ты близко.",
+      "Ты в ударе.",
+      "Он уже не понимает, что происходит.",
+      "Ещё одна попытка — и рекорд.",
+      "Он на тебя зол. Но это его проблемы.",
+      "Неплохо для того, кто не умеет играть."
+    ]
+  },
+  {
+    minScore: 25, maxScore: 39,
+    messages: [
+      "Мастер. Он тебя боится.",
+      "Ты машина.",
+      "Он пытался — не получилось.",
+      "Ты играешь, а он мучается.",
+      "Ты его сломал.",
+      "Он сдаётся. Медленно, но сдаётся.",
+      "Хвастаться будешь, когда 40 наберёшь."
+    ]
+  },
+  {
+    minScore: 40, maxScore: Infinity,
+    messages: [
+      "Легенда. Он никогда не забудет это.",
+      "Игра сдаётся. Ты победил.",
+      "Такого не было никогда.",
+      "Ты — тот, кого он боится во сне.",
+      "Ты выиграл. Но всё равно проиграл — в жизни."
+    ]
+  }
+];
+
+function pickMessage(score) {
+  for (var i = 0; i < MESSAGE_BUCKETS.length; i++) {
+    var b = MESSAGE_BUCKETS[i];
+    if (score >= b.minScore && score <= b.maxScore) {
+      return b.messages[Math.floor(Math.random() * b.messages.length)];
+    }
+  }
+  return "Конец.";
+}
 
 // ---------- ЗВУК ----------
 var soundEnabled = true;
@@ -178,9 +307,7 @@ function soundHit(score) {
   var baseFreq = 700 + Math.min(score * 40, 800);
   playTone(baseFreq, 0.08, "square", 0.8);
 }
-function soundMissClick() {
-  playTone(180, 0.09, "triangle", 0.5);
-}
+function soundMissClick() { playTone(180, 0.09, "triangle", 0.5); }
 function soundGameOver() { playTone(500, 0.5, "sine", 0.9, 120); }
 function soundStart()    { playTone(400, 0.15, "sine", 0.7, 800); }
 function soundClick()    { playTone(900, 0.04, "square", 0.4); }
@@ -360,7 +487,6 @@ function ensureMusicPlaying() {
 }
 // ============================================================
 
-// ---------- ЦВЕТ: затемнение ----------
 function darkenColor(hex, factor) {
   var rgb = hexToRgb(hex);
   if (!rgb) return hex;
@@ -619,23 +745,18 @@ function spawnParticles(x, y, baseSize, color, useImage) {
     var angle = Math.random() * Math.PI * 2;
     var speed = 100 + Math.random() * 200;
     var size = 3 + Math.random() * 4;
-
-    // маленький кусочек исходного фото
     var srcX = Math.random();
     var srcY = Math.random();
 
     particles.push({
-      x: x,
-      y: y,
+      x: x, y: y,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
-      life: 0.6,
-      maxLife: 0.6,
+      life: 0.6, maxLife: 0.6,
       size: size,
       color: color,
       useImage: useImage,
-      srcX: srcX,
-      srcY: srcY,
+      srcX: srcX, srcY: srcY,
       rotation: Math.random() * Math.PI * 2,
       rotSpeed: (Math.random() - 0.5) * 6
     });
@@ -660,30 +781,21 @@ function drawParticles() {
     var p = particles[i];
     var alpha = Math.max(0, p.life / p.maxLife);
     ctx.globalAlpha = alpha;
-
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(p.rotation);
-
     var hs = p.size / 2;
-
     if (p.useImage && sqImage) {
-      // рисуем маленький кусочек фото
       var imgW = sqImage.width;
       var imgH = sqImage.height;
       var side = Math.min(imgW, imgH);
       var cropX = p.srcX * (imgW - side);
       var cropY = p.srcY * (imgH - side);
-      ctx.drawImage(
-        sqImage,
-        cropX, cropY, side, side,
-        -hs, -hs, p.size, p.size
-      );
+      ctx.drawImage(sqImage, cropX, cropY, side, side, -hs, -hs, p.size, p.size);
     } else {
       ctx.fillStyle = p.color;
       ctx.fillRect(-hs, -hs, p.size, p.size);
     }
-
     ctx.restore();
   }
   ctx.globalAlpha = 1;
@@ -703,21 +815,13 @@ function Square() {
   this.boostTimer = BOOST_INTERVAL;
   this.boostActive = 0;
   this.disguiseTimer = 60;
-
-  // анимация попадания
-  this.popPhase = "none"; // "none" | "in" | "out"
+  this.popPhase = "none";
   this.popTime = 0;
-
-  // анимация появления
   this.spawnTime = 0;
-
-  // анимация промаха (только для ложных)
-  this.missPhase = "none"; // "none" | "blink" | "fade"
+  this.missPhase = "none";
   this.missTime = 0;
-
-  // для кликов
-  this.dead = false; // больше нельзя кликнуть
-  this.removed = false; // полностью убрать (для ложных после анимации)
+  this.dead = false;
+  this.removed = false;
 }
 
 Square.prototype.startPop = function() {
@@ -735,14 +839,12 @@ Square.prototype.startMiss = function() {
 Square.prototype.update = function(mx, my, score, dt) {
   if (!dt) dt = 1/60;
 
-  // анимация попадания
   if (this.popPhase !== "none") {
     this.popTime += dt;
     if (this.popPhase === "in") {
       if (this.popTime >= POP_DURATION_IN) {
         this.popPhase = "out";
         this.popTime = 0;
-        // взрыв частиц
         spawnParticles(this.x, this.y, this.baseSize, this.color, !!(sqImage && !this.fake));
       }
     } else if (this.popPhase === "out") {
@@ -754,7 +856,6 @@ Square.prototype.update = function(mx, my, score, dt) {
     return;
   }
 
-  // анимация промаха (ложные)
   if (this.missPhase !== "none") {
     this.missTime += dt;
     if (this.missPhase === "blink") {
@@ -771,7 +872,6 @@ Square.prototype.update = function(mx, my, score, dt) {
     return;
   }
 
-  // анимация появления
   if (this.spawnTime < SPAWN_DURATION) {
     this.spawnTime += dt;
   }
@@ -870,31 +970,22 @@ Square.prototype.update = function(mx, my, score, dt) {
   this.y = Math.max(this.baseSize, Math.min(H - this.baseSize, this.y));
 };
 
-// размер с учётом анимации (раздувание/сжатие/появление)
 Square.prototype.getCurrentSize = function() {
   var s = this.baseSize;
-
-  // появление
   if (this.spawnTime < SPAWN_DURATION) {
     var t = this.spawnTime / SPAWN_DURATION;
     s = this.baseSize * t;
   }
-
-  // попадание — раздувание
   if (this.popPhase === "in") {
     var t1 = this.popTime / POP_DURATION_IN;
     s = this.baseSize * (1 + (POP_SCALE_MAX - 1) * t1);
-  }
-  // попадание — сжатие
-  else if (this.popPhase === "out") {
+  } else if (this.popPhase === "out") {
     var t2 = this.popTime / POP_DURATION_OUT;
     s = this.baseSize * POP_SCALE_MAX * (1 - t2);
   }
-
   return Math.max(0, s);
 };
 
-// прозрачность (для анимации промаха)
 Square.prototype.getAlpha = function() {
   if (this.missPhase === "fade") {
     var t = this.missTime / MISS_FADE_DURATION;
@@ -903,14 +994,12 @@ Square.prototype.getAlpha = function() {
   return 1;
 };
 
-// мигание красным (для ложного)
 Square.prototype.getRedFlash = function() {
   if (this.missPhase === "blink") {
-    // 2 мигания: за 0.4 сек — синусоида, 2 цикла
-    var t = this.missTime / MISS_BLINK_DURATION; // 0..1
+    var t = this.missTime / MISS_BLINK_DURATION;
     var cycles = 2;
     var val = Math.sin(t * Math.PI * 2 * cycles);
-    return Math.max(0, val) * 0.15; // максимум 15%
+    return Math.max(0, val) * 0.15;
   }
   return 0;
 };
@@ -933,55 +1022,50 @@ Square.prototype.draw = function() {
   var x = this.x - half;
   var y = this.y - half;
 
-  // ложные: без тени. Настоящие: с тенью и подложкой
+  // подложка — 3 пикселя со всех сторон
+  var PAD = 3;
+  var padX = x - PAD;
+  var padY = y - PAD;
+  var padSize = size + PAD * 2;
+
+  // тень — только у настоящего
   if (!this.fake) {
-    // --- ТЕНЬ (только у настоящего) ---
     ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
-    ctx.shadowBlur = 12;
-    ctx.shadowOffsetX = 3;
-    ctx.shadowOffsetY = 4;
+    ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetX = 4;
+    ctx.shadowOffsetY = 5;
 
-    // рисуем подложку с тенью
-    ctx.fillStyle = "rgba(0,0,0,0)";
-    ctx.fillRect(x - 1, y - 1, size + 2, size + 2);
-
+    if (sqImage) {
+      ctx.drawImage(sqImage, padX, padY, padSize, padSize);
+    } else {
+      var darkColor = darkenColor(this.color, 0.25);
+      ctx.fillStyle = darkColor;
+      ctx.fillRect(padX, padY, padSize, padSize);
+    }
     ctx.restore();
   }
 
-  // --- ПОДЛОЖКА (у всех) ---
-  // на 1 пиксель больше со всех сторон, темнее на 25%
-  var padX = x - 1;
-  var padY = y - 1;
-  var padSize = size + 2;
-
-  if (sqImage && !this.fake) {
-    // затемнённое фото как подложка
-    ctx.drawImage(sqImage, padX, padY, padSize, padSize);
-    // затемняющий слой
-    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
-    ctx.fillRect(padX, padY, padSize, padSize);
-  } else if (sqImage && this.fake) {
+  // подложка без тени (сама)
+  if (sqImage) {
     ctx.drawImage(sqImage, padX, padY, padSize, padSize);
     ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
     ctx.fillRect(padX, padY, padSize, padSize);
   } else {
-    var darkColor = darkenColor(this.color, 0.25);
-    ctx.fillStyle = darkColor;
+    var darkColor2 = darkenColor(this.color, 0.25);
+    ctx.fillStyle = darkColor2;
     ctx.fillRect(padX, padY, padSize, padSize);
   }
 
-  // --- САМ КВАДРАТИК ---
-  if (sqImage && !this.fake) {
-    ctx.drawImage(sqImage, x, y, size, size);
-  } else if (sqImage && this.fake) {
+  // сам квадратик
+  if (sqImage) {
     ctx.drawImage(sqImage, x, y, size, size);
   } else {
     ctx.fillStyle = this.color;
     ctx.fillRect(x, y, size, size);
   }
 
-  // --- КРАСНОЕ МИГАНИЕ (для ложного при промахе) ---
+  // красное мигание
   if (redFlash > 0) {
     ctx.fillStyle = "rgba(255, 0, 0, " + redFlash + ")";
     ctx.fillRect(x, y, size, size);
@@ -1006,7 +1090,7 @@ function drawPopups() {
     var p = popups[i];
     ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 28px Arial";
+    ctx.font = "bold 28px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("+1", p.x, p.y);
@@ -1023,9 +1107,11 @@ var game = {
   record: 0,
   square: null,
   fakeSquares: [],
-  deadSquares: [], // мёртвые (анимируются и исчезнут)
+  deadSquares: [],
   mouse: { x: 200, y: 200 },
   buttons: [],
+  gameOverTime: 0,
+  gameOverMessage: "",
 
   reset: function() {
     this.square = new Square();
@@ -1035,6 +1121,8 @@ var game = {
     this.timeLeft = 30;
     popups = [];
     particles = [];
+    this.gameOverTime = 0;
+    this.gameOverMessage = "";
   },
 
   start: function(mode) {
@@ -1050,6 +1138,8 @@ var game = {
 
   end: function() {
     this.state = GAME_OVER;
+    this.gameOverTime = 0;
+    this.gameOverMessage = pickMessage(this.score);
     if (this.score > this.record) {
       this.record = this.score;
       try { localStorage.setItem("catchme_record", this.record); } catch(e) {}
@@ -1062,8 +1152,13 @@ var game = {
     updatePopups(dt);
     updateParticles(dt);
 
+    if (this.state === GAME_OVER) {
+      if (this.gameOverTime < GAMEOVER_FADE_DURATION) {
+        this.gameOverTime += dt;
+      }
+    }
+
     if (this.state !== PLAYING) {
-      // обновляем мёртвые квадратики в любом состоянии, чтобы не зависали
       for (var d = this.deadSquares.length - 1; d >= 0; d--) {
         this.deadSquares[d].update(this.mouse.x, this.mouse.y, this.score, dt);
         if (this.deadSquares[d].removed) this.deadSquares.splice(d, 1);
@@ -1074,12 +1169,10 @@ var game = {
     var mx = this.mouse.x, my = this.mouse.y;
     this.square.update(mx, my, this.score, dt);
 
-    // настоящий квадратик ушёл в "removed" — не должен случаться, но на всякий
     if (this.square.removed) {
       this.square = new Square();
     }
 
-    // ложные
     if (this.square.behavior === "multiply" && this.fakeSquares.length < 2) {
       if (Math.random() < 0.015) {
         var fs = new Square();
@@ -1092,7 +1185,6 @@ var game = {
       if (this.fakeSquares[i].removed) this.fakeSquares.splice(i, 1);
     }
 
-    // мёртвые (анимация)
     for (var d2 = this.deadSquares.length - 1; d2 >= 0; d2--) {
       this.deadSquares[d2].update(mx, my, this.score, dt);
       if (this.deadSquares[d2].removed) this.deadSquares.splice(d2, 1);
@@ -1196,18 +1288,15 @@ var game = {
         }
       }
 
-      // проверяем настоящий
       if (!this.square.dead && this.square.collides(px, py)) {
         this.score++;
         spawnPopup(px, py);
         soundHit(this.score);
 
-        // старый начинает анимацию попадания
         var old = this.square;
         old.startPop();
         this.deadSquares.push(old);
 
-        // создаём нового в другом месте
         var newX, newY, attempts = 0;
         do {
           newX = Math.random() * (W - 100) + 50;
@@ -1223,7 +1312,6 @@ var game = {
         this.square.y = newY;
         this.square.spawnTime = 0;
 
-        // сбрасываем ложные квадраты, как раньше
         for (var fi = 0; fi < this.fakeSquares.length; fi++) {
           if (!this.fakeSquares[fi].dead) {
             this.fakeSquares[fi].startMiss();
@@ -1234,7 +1322,6 @@ var game = {
         return;
       }
 
-      // проверяем ложные
       for (var fi2 = this.fakeSquares.length - 1; fi2 >= 0; fi2--) {
         var fsq = this.fakeSquares[fi2];
         if (!fsq.dead && fsq.collides(px, py)) {
@@ -1250,6 +1337,9 @@ var game = {
     }
 
     if (this.state === GAME_OVER) {
+      // пока не появился полностью — игнорируем кнопки
+      if (this.gameOverTime < GAMEOVER_FADE_DURATION) return;
+
       for (var j = 0; j < this.buttons.length; j++) {
         var b2 = this.buttons[j];
         if (px >= b2.x && px <= b2.x + b2.w && py >= b2.y && py <= b2.y + b2.h) {
@@ -1301,14 +1391,15 @@ var game = {
     hideFileLabel();
     hideHexInput();
 
-    ctx.fillStyle = "#f0f0f0";
-    ctx.font = "bold 52px Arial";
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 52px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("ПОЙМАЙ МЕНЯ", W / 2, H * 0.22);
 
-    ctx.fillStyle = "#808090";
-    ctx.font = "20px Arial";
+    // Рекорд — белый, как заголовок
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "20px " + FONT_FAMILY;
     ctx.fillText("Рекорд: " + this.record, W / 2, H * 0.32);
 
     var bw = Math.min(320, W - 60);
@@ -1327,8 +1418,8 @@ var game = {
     hideFileLabel();
     hideHexInput();
 
-    ctx.fillStyle = "#f0f0f0";
-    ctx.font = "bold 44px Arial";
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 44px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("НАСТРОЙКИ", W / 2, H * 0.14);
@@ -1349,8 +1440,8 @@ var game = {
     this.buttons = [];
     hideFileLabelSq();
 
-    ctx.fillStyle = "#f0f0f0";
-    ctx.font = "bold 36px Arial";
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 36px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("ФОН", W / 2, H * 0.06);
@@ -1464,8 +1555,8 @@ var game = {
     this.buttons = [];
     hideFileLabelBg();
 
-    ctx.fillStyle = "#f0f0f0";
-    ctx.font = "bold 32px Arial";
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 32px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("КВАДРАТИК", W / 2, H * 0.04);
@@ -1603,8 +1694,8 @@ var game = {
     hideFileLabel();
     hideHexInput();
 
-    ctx.fillStyle = "#f0f0f0";
-    ctx.font = "bold 40px Arial";
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 40px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("ЗВУК", W / 2, H * 0.10);
@@ -1625,7 +1716,7 @@ var game = {
     var barW = bw;
 
     ctx.fillStyle = "#c0c0d0";
-    ctx.font = "18px Arial";
+    ctx.font = "18px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
     ctx.fillText("Громкость эффектов: " + Math.round(fxVolume * 100) + "%", W / 2, barY - knobR - 6);
@@ -1648,7 +1739,7 @@ var game = {
     var mbarY = H * 0.62;
 
     ctx.fillStyle = "#c0c0d0";
-    ctx.font = "18px Arial";
+    ctx.font = "18px " + FONT_FAMILY;
     ctx.textBaseline = "bottom";
     ctx.fillText("Громкость музыки: " + Math.round(musicVolume * 100) + "%", W / 2, mbarY - knobR - 6);
 
@@ -1683,25 +1774,20 @@ var game = {
     var exitY = 16;
     exitButtonZone = { x: exitX, y: exitY, w: exitSize, h: exitSize };
 
-    // ложные (настоящие живые)
     for (var i = 0; i < this.fakeSquares.length; i++) this.fakeSquares[i].draw();
-
-    // мёртвые (анимируются и исчезнут) — под текущим
     for (var d = 0; d < this.deadSquares.length; d++) this.deadSquares[d].draw();
-
-    // настоящий
     this.square.draw();
 
     drawPopups();
     drawParticles();
 
-    ctx.fillStyle = "#f0f0f0";
-    ctx.font = "bold 24px Arial";
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 24px " + FONT_FAMILY;
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillText("Очки: " + this.score, 20, 20);
 
-    ctx.font = "20px Arial";
+    ctx.font = "20px " + FONT_FAMILY;
     if (this.mode === "timed") {
       ctx.fillText("Время: " + Math.ceil(this.timeLeft), 20, 52);
     } else {
@@ -1734,48 +1820,52 @@ var game = {
     hideFileLabel();
     hideHexInput();
 
-    ctx.fillStyle = "#f0f0f0";
-    ctx.font = "bold 48px Arial";
+    // прогресс появления 0..1
+    var progress = Math.min(1, this.gameOverTime / GAMEOVER_FADE_DURATION);
+
+    ctx.globalAlpha = progress;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 48px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("Игра окончена", W / 2, H * 0.22);
+    ctx.fillText("Время вышло", W / 2, H * 0.22);
 
-    ctx.font = "28px Arial";
+    ctx.font = "28px " + FONT_FAMILY;
     ctx.fillText("Твой счёт: " + this.score, W / 2, H * 0.36);
 
-    ctx.fillStyle = "#808090";
-    ctx.font = "22px Arial";
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "22px " + FONT_FAMILY;
     ctx.fillText("Рекорд: " + this.record, W / 2, H * 0.44);
 
-    var msg;
-    if (this.score >= 20) msg = "Ты его поймал. Но он вернётся.";
-    else if (this.score >= 10) msg = "Хорошо. Но он ещё быстрее.";
-    else msg = "Он всё ещё быстрее тебя.";
     ctx.fillStyle = "#f0f0f0";
-    ctx.font = "20px Arial";
-    ctx.fillText(msg, W / 2, H * 0.53);
+    ctx.font = "20px " + FONT_FAMILY;
+    ctx.fillText(this.gameOverMessage, W / 2, H * 0.53);
 
-    var bw = Math.min(320, W - 60);
-    var bx = (W - bw) / 2;
-    var half = (bw - 20) / 2;
+    ctx.globalAlpha = 1;
 
-    var b1 = { x: bx, y: H * 0.68, w: half, h: 55, text: "Ещё раз", id: "again" };
-    var b2 = { x: bx + half + 20, y: H * 0.68, w: half, h: 55, text: "В меню", id: "menu" };
-    this.buttons = [b1, b2];
-    drawButtons(this.buttons);
+    // кнопки — только когда появление завершено
+    if (progress >= 1) {
+      var bw = Math.min(320, W - 60);
+      var bx = (W - bw) / 2;
+      var half = (bw - 20) / 2;
+
+      var b1 = { x: bx, y: H * 0.68, w: half, h: 55, text: "Ещё раз", id: "again" };
+      var b2 = { x: bx + half + 20, y: H * 0.68, w: half, h: 55, text: "В меню", id: "menu" };
+      this.buttons = [b1, b2];
+      drawButtons(this.buttons);
+    }
   }
 };
 
-// ---------- КНОПКИ С ТЕНЬЮ ----------
 function drawButtons(list) {
   for (var i = 0; i < list.length; i++) {
     var b = list[i];
     var hover = game.mouse.x >= b.x && game.mouse.x <= b.x + b.w &&
                 game.mouse.y >= b.y && game.mouse.y <= b.y + b.h;
 
-    // тень
     ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+    ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
     ctx.shadowBlur = 12;
     ctx.shadowOffsetX = 3;
     ctx.shadowOffsetY = 4;
@@ -1784,12 +1874,11 @@ function drawButtons(list) {
     ctx.fillRect(b.x, b.y, b.w, b.h);
     ctx.restore();
 
-    // рамка без тени
     ctx.strokeStyle = "#50505a"; ctx.lineWidth = 2;
     ctx.strokeRect(b.x, b.y, b.w, b.h);
 
     ctx.fillStyle = "#f0f0f0";
-    ctx.font = "bold 18px Arial";
+    ctx.font = "bold 18px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(b.text, b.x + b.w/2, b.y + b.h/2);
