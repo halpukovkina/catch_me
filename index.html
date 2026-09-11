@@ -4,21 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Поймай меня</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
 <style>
   @font-face {
     font-family: "Cascadia Code";
     src: url("https://cdn.jsdelivr.net/gh/microsoft/cascadia-code@main/fonts/ttf/CascadiaCode.ttf") format("truetype");
-    font-weight: normal;
-    font-style: normal;
-    font-display: swap;
+    font-weight: normal; font-style: normal; font-display: swap;
   }
   @font-face {
     font-family: "Cascadia Code";
     src: url("https://cdn.jsdelivr.net/gh/microsoft/cascadia-code@main/fonts/ttf/CascadiaCode-Bold.ttf") format("truetype");
-    font-weight: bold;
-    font-style: normal;
-    font-display: swap;
+    font-weight: bold; font-style: normal; font-display: swap;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -31,25 +27,14 @@
   canvas { display: block; touch-action: none; }
   #fileInputBg, #fileInputSq { display: none; }
   #fileLabelBg, #fileLabelSq {
-    position: fixed;
-    display: none;
-    z-index: 100;
-    cursor: pointer;
+    position: fixed; display: none; z-index: 100; cursor: pointer;
   }
   #hexInput {
-    position: fixed;
-    display: none;
-    z-index: 200;
-    font-size: 22px;
-    font-family: "Cascadia Code", Consolas, monospace;
-    padding: 8px 12px;
-    border: 2px solid #5050a0;
-    border-radius: 8px;
-    background: #1a1a2a;
-    color: #f0f0f0;
-    outline: none;
-    width: 200px;
-    text-align: center;
+    position: fixed; display: none; z-index: 200;
+    font-size: 22px; font-family: "Cascadia Code", Consolas, monospace;
+    padding: 8px 12px; border: 2px solid #5050a0; border-radius: 8px;
+    background: #1a1a2a; color: #f0f0f0; outline: none;
+    width: 200px; text-align: center;
   }
 </style>
 </head>
@@ -91,56 +76,37 @@ var dragging = null;
 var MENU = "menu";
 var PLAYING = "playing";
 var GAME_OVER = "game_over";
+var ENDLESS_QUIT = "endless_quit";  // экран "Уже уходишь?"
+var MODE_SELECT = "mode_select";     // экран выбора режима
+var MODE_INFO = "mode_info";         // экран режима с выбором сложности
+var SOON = "soon";                   // заглушка "Скоро"
 var SETTINGS = "settings";
 var SETTINGS_BG = "settings_bg";
 var SETTINGS_SQUARE = "settings_square";
 var SETTINGS_SOUND = "settings_sound";
-var SETTINGS_DIFFICULTY = "settings_difficulty";
 
-var COLORS = ["#ff5050", "#50ff78", "#50a0ff", "#ffdc50", "#dc50ff", "#50fff0"];
+// ---------- РЕЖИМЫ ----------
+var MODES = [
+  { id: "timed",     name: "На время",  desc: "Успей поймать как можно больше. Время ограничено." },
+  { id: "endless",   name: "Свободный", desc: "Никаких ограничений. Играй, пока не надоест." },
+  { id: "sprint",    name: "Спринт",    desc: "Поймай все цели как можно быстрее. Время идёт вверх." },
+  { id: "accuracy",  name: "Точность",  desc: "Клик мимо — минус очко. Каждая ошибка приближает тебя к позору. Продержись как можно дольше и не промахнись." }
+];
 
 // ---------- СЛОЖНОСТИ ----------
 var DIFFICULTIES = [
-  {
-    id: "easy",
-    name: "Лёгкая",
-    sizeStart: 80,
-    sizeMin: 25,
-    sizeStep: 1.2,
-    speedMul: 0.85,
-    boostDuration: 0.4,
-    boostMultiplier: 1.7
-  },
-  {
-    id: "medium",
-    name: "Средняя",
-    sizeStart: 70,
-    sizeMin: 20,
-    sizeStep: 1.5,
-    speedMul: 1.0,
-    boostDuration: 0.6,
-    boostMultiplier: 2.0
-  },
-  {
-    id: "hard",
-    name: "Сложная",
-    sizeStart: 60,
-    sizeMin: 14,
-    sizeStep: 2.0,
-    speedMul: 1.2,
-    boostDuration: 0.8,
-    boostMultiplier: 2.3
-  },
-  {
-    id: "hardcore",
-    name: "Хардкор",
-    sizeStart: 50,
-    sizeMin: 10,
-    sizeStep: 2.5,
-    speedMul: 1.4,
-    boostDuration: 1.0,
-    boostMultiplier: 2.5
-  }
+  { id: "easy",     name: "Лёгкая",   sizeStart: 80, sizeMin: 25, sizeStep: 1.2, speedMul: 0.85,
+    boostDuration: 0.4, boostMultiplier: 1.7,
+    timedSeconds: 40, sprintTarget: 5 },
+  { id: "medium",   name: "Средняя",  sizeStart: 70, sizeMin: 20, sizeStep: 1.5, speedMul: 1.0,
+    boostDuration: 0.6, boostMultiplier: 2.0,
+    timedSeconds: 30, sprintTarget: 10 },
+  { id: "hard",     name: "Сложная",  sizeStart: 60, sizeMin: 14, sizeStep: 2.0, speedMul: 1.2,
+    boostDuration: 0.8, boostMultiplier: 2.3,
+    timedSeconds: 20, sprintTarget: 15 },
+  { id: "hardcore", name: "Хардкор",  sizeStart: 50, sizeMin: 10, sizeStep: 2.5, speedMul: 1.4,
+    boostDuration: 1.0, boostMultiplier: 2.5,
+    timedSeconds: 15, sprintTarget: 20 }
 ];
 
 var currentDifficulty = "medium";
@@ -160,16 +126,170 @@ function getDifficulty() {
   return DIFFICULTIES[1];
 }
 
-// рекорды по сложностям
-function loadRecord(diffId) {
+// какие настройки показывать на экране сложности — зависит от режима
+function getDifficultyLabel(modeId, diff) {
+  if (modeId === "timed") return diff.timedSeconds + " сек";
+  if (modeId === "sprint") return diff.sprintTarget + " целей";
+  if (diff.id === "easy") return "медленнее, крупнее";
+  if (diff.id === "medium") return "стандарт";
+  if (diff.id === "hard") return "быстрее, мельче";
+  return "максимальный темп";
+}
+
+// текущий выбранный режим (для экрана MODE_INFO и игры)
+var currentMode = "timed";
+
+// рекорды — по комбинации mode + diff
+function recordKey(mode, diff) { return "catchme_record_" + mode + "_" + diff; }
+function loadRecord(mode, diff) {
   try {
-    var v = localStorage.getItem("catchme_record_" + diffId);
+    var v = localStorage.getItem(recordKey(mode, diff));
     if (v === null) return 0;
     return parseInt(v) || 0;
   } catch(e) { return 0; }
 }
-function saveRecord(diffId, value) {
-  try { localStorage.setItem("catchme_record_" + diffId, String(value)); } catch(e) {}
+function saveRecord(mode, diff, value) {
+  try { localStorage.setItem(recordKey(mode, diff), String(value)); } catch(e) {}
+}
+
+// ---------- СООБЩЕНИЯ ----------
+// сообщения для режима "На время" и "Точность" - по счёту
+var MESSAGE_BUCKETS_SCORE = [
+  { minScore: -Infinity, maxScore: -10, messages: [
+    "Это уже не игра. Это катастрофа.",
+    "Ты вообще целился?",
+    "Минус десять. Минус десять!",
+    "Может, попробуешь что-то другое?",
+    "Клик за кликом — и всё мимо."
+  ]},
+  { minScore: -9, maxScore: -1, messages: [
+    "Ты в минусе. Это плохо.",
+    "Промах за промахом.",
+    "Может, пауза?",
+    "Не расстраивайся. Но ты ужасен.",
+    "Соберись. Пожалуйста."
+  ]},
+  { minScore: 0, maxScore: 2, messages: [
+    "Ты только начал. И уже продул.",
+    "Разминка. Квадратик только разогревается.",
+    "Он даже не устал.",
+    "Может, ещё раз? Или сдаёшься?",
+    "Серьёзно? И это всё, на что ты способен?"
+  ]},
+  { minScore: 3, maxScore: 7, messages: [
+    "Уже что-то. Но не то.",
+    "Пробуй ещё. И ещё.",
+    "Есть контакт.",
+    "Может, тебе лучше в шахматы? Там медленнее.",
+    "Тренировка. Ещё тренировка."
+  ]},
+  { minScore: 8, maxScore: 14, messages: [
+    "Хорошо идёшь. Но он ещё в форме.",
+    "Ты в форме сегодня.",
+    "Это уже не разминка.",
+    "Уже лучше. Но всё ещё стыдно.",
+    "Продолжай в том же духе."
+  ]},
+  { minScore: 15, maxScore: 24, messages: [
+    "Отлично. Он в панике.",
+    "Ты разогнался.",
+    "Ты его пугаешь.",
+    "Неплохо для того, кто не умеет играть.",
+    "Ты в ударе."
+  ]},
+  { minScore: 25, maxScore: 39, messages: [
+    "Мастер. Он тебя боится.",
+    "Ты машина.",
+    "Ты его сломал.",
+    "Хвастаться будешь, когда 40 наберёшь.",
+    "Он сдаётся. Медленно, но сдаётся."
+  ]},
+  { minScore: 40, maxScore: Infinity, messages: [
+    "Легенда. Он никогда не забудет это.",
+    "Игра сдаётся. Ты победил.",
+    "Ты — тот, кого он боится во сне.",
+    "Ты выиграл. Но всё равно проиграл — в жизни."
+  ]}
+];
+
+// сообщения для "Спринт" - по времени (меньше = лучше)
+var MESSAGE_BUCKETS_SPRINT = [
+  { minTime: 0, maxTime: 8, messages: [
+    "Молниеносно. Он не успел ничего понять.",
+    "Ты быстрее, чем кажешься.",
+    "Это рекорд? Наверное, да.",
+    "Идеально.",
+    "Ты монстр."
+  ]},
+  { minTime: 8, maxTime: 15, messages: [
+    "Быстро. Очень быстро.",
+    "Хороший темп.",
+    "Ты его разогнал.",
+    "Почти идеально.",
+    "Ещё быстрее — и будет топ."
+  ]},
+  { minTime: 15, maxTime: 25, messages: [
+    "Нормально. Но можно быстрее.",
+    "Средний темп.",
+    "Ты успел. Молодец.",
+    "Не спешил — и поймал.",
+    "Ещё одна попытка?"
+  ]},
+  { minTime: 25, maxTime: Infinity, messages: [
+    "Медленно. Но зато поймал.",
+    "Ты не торопился. Совсем.",
+    "Может, побыстрее в следующий раз?",
+    "Сойдёт. Но можно лучше.",
+    "Ты шёл пешком. А надо было бежать."
+  ]}
+];
+
+// подбадривающие сообщения для "Свободного"
+var MESSAGE_ENDLESS = [
+  "Неплохо.",
+  "Приходи ещё.",
+  "Ты в форме.",
+  "Ещё разок?",
+  "Спасибо за игру.",
+  "Ты держишься.",
+  "Продолжай в том же духе.",
+  "Хорошая серия.",
+  "Он тебя запомнит.",
+  "Ещё увидимся.",
+  "Ты справляешься.",
+  "Отличная попытка.",
+  "Уже лучше, чем в прошлый раз.",
+  "Он тебя боится. Правда.",
+  "Ещё чуть-чуть — и рекорд.",
+  "До встречи.",
+  "Ты не сдаёшься. Это главное.",
+  "Красиво играешь.",
+  "Приходи ещё.",
+  "Спасибо, что зашёл."
+];
+
+function pickScoreMessage(score) {
+  for (var i = 0; i < MESSAGE_BUCKETS_SCORE.length; i++) {
+    var b = MESSAGE_BUCKETS_SCORE[i];
+    if (score >= b.minScore && score <= b.maxScore) {
+      return b.messages[Math.floor(Math.random() * b.messages.length)];
+    }
+  }
+  return "Конец.";
+}
+
+function pickSprintMessage(time) {
+  for (var i = 0; i < MESSAGE_BUCKETS_SPRINT.length; i++) {
+    var b = MESSAGE_BUCKETS_SPRINT[i];
+    if (time >= b.minTime && time < b.maxTime) {
+      return b.messages[Math.floor(Math.random() * b.messages.length)];
+    }
+  }
+  return "Конец.";
+}
+
+function pickEndlessMessage() {
+  return MESSAGE_ENDLESS[Math.floor(Math.random() * MESSAGE_ENDLESS.length)];
 }
 
 // ---------- ПРОГРЕССИЯ ----------
@@ -178,7 +298,7 @@ var LEVELS = [
   { score: 6,  speed: 1.6, behavior: "boost" },
   { score: 12, speed: 1.8, behavior: "disguise" },
   { score: 20, speed: 2.0, behavior: "teleport" },
-  { score: 18, speed: 2.2, behavior: "multiply" },
+  { score: 26, speed: 2.2, behavior: "multiply" },
   { score: 32, speed: 2.4, behavior: "hunt" }
 ];
 
@@ -198,88 +318,6 @@ var MISS_BLINK_DURATION = 0.4;
 var MISS_FADE_DURATION = 0.3;
 
 var GAMEOVER_FADE_DURATION = 0.5;
-
-// ---------- СООБЩЕНИЯ ----------
-var MESSAGE_BUCKETS = [
-  { minScore: 0, maxScore: 2, messages: [
-    "Ты только начал. И уже продул.",
-    "Разминка. Квадратик только разогревается.",
-    "Он даже не устал.",
-    "Может, ещё раз? Или сдаёшься?",
-    "Дальше будет сложнее. Серьёзно.",
-    "Он быстрее тебя. И умнее.",
-    "Первая попытка — комом.",
-    "Не расстраивайся. Всё равно поймаешь.",
-    "Серьёзно? И это всё, на что ты способен?"
-  ]},
-  { minScore: 3, maxScore: 7, messages: [
-    "Уже что-то. Но не то.",
-    "Пробуй ещё. И ещё.",
-    "Есть контакт.",
-    "Ты его задел. Он это запомнит.",
-    "Неплохо. Для начала.",
-    "Не стой на месте — он не стоит.",
-    "Ты начинаешь понимать.",
-    "Он уважает твои попытки.",
-    "Ещё чуть-чуть — и пойдёт.",
-    "Тренировка. Ещё тренировка.",
-    "Может, тебе лучше в шахматы? Там медленнее."
-  ]},
-  { minScore: 8, maxScore: 14, messages: [
-    "Хорошо идёшь. Но он ещё в форме.",
-    "Ещё чуть-чуть до хорошего результата.",
-    "Ты в форме сегодня.",
-    "Он начал нервничать.",
-    "Это уже не разминка.",
-    "Он чувствует твоё дыхание.",
-    "Продолжай в том же духе.",
-    "Ты попадаешь чаще, чем мажешь.",
-    "Он не ожидал такого.",
-    "Уже интересно.",
-    "Ты его раздражаешь.",
-    "Ещё немного — и он сдастся.",
-    "Уже лучше. Но всё ещё стыдно."
-  ]},
-  { minScore: 15, maxScore: 24, messages: [
-    "Отлично. Он в панике.",
-    "Ты разогнался.",
-    "Ещё быстрее. Он не догонит.",
-    "Ты его пугаешь.",
-    "Хороший темп. Не сбавляй.",
-    "Он на грани. Ты близко.",
-    "Ты в ударе.",
-    "Он уже не понимает, что происходит.",
-    "Ещё одна попытка — и рекорд.",
-    "Он на тебя зол. Но это его проблемы.",
-    "Неплохо для того, кто не умеет играть."
-  ]},
-  { minScore: 25, maxScore: 39, messages: [
-    "Мастер. Он тебя боится.",
-    "Ты машина.",
-    "Он пытался — не получилось.",
-    "Ты играешь, а он мучается.",
-    "Ты его сломал.",
-    "Он сдаётся. Медленно, но сдаётся.",
-    "Хвастаться будешь, когда 40 наберёшь."
-  ]},
-  { minScore: 40, maxScore: Infinity, messages: [
-    "Легенда. Он никогда не забудет это.",
-    "Игра сдаётся. Ты победил.",
-    "Такого не было никогда.",
-    "Ты — тот, кого он боится во сне.",
-    "Ты выиграл. Но всё равно проиграл — в жизни."
-  ]}
-];
-
-function pickMessage(score) {
-  for (var i = 0; i < MESSAGE_BUCKETS.length; i++) {
-    var b = MESSAGE_BUCKETS[i];
-    if (score >= b.minScore && score <= b.maxScore) {
-      return b.messages[Math.floor(Math.random() * b.messages.length)];
-    }
-  }
-  return "Конец.";
-}
 
 // ---------- ЗВУК ----------
 var soundEnabled = true;
@@ -348,7 +386,7 @@ function playTone(freq, duration, type, volumeScale, freqEnd) {
 }
 
 function soundHit(score) {
-  var baseFreq = 700 + Math.min(score * 40, 800);
+  var baseFreq = 700 + Math.min(Math.max(score, 0) * 40, 800);
   playTone(baseFreq, 0.08, "square", 0.8);
 }
 function soundMissClick() { playTone(180, 0.09, "triangle", 0.5); }
@@ -357,6 +395,7 @@ function soundStart()    { playTone(400, 0.15, "sine", 0.7, 800); }
 function soundClick()    { playTone(900, 0.04, "square", 0.4); }
 function soundTeleport() { playTone(300, 0.12, "sine", 0.5, 1200); }
 function soundBoost()    { playTone(1100, 0.06, "triangle", 0.5); }
+function soundFinish()   { playTone(880, 0.15, "square", 0.9); playTone(1318, 0.25, "square", 0.9); }
 
 // ============================================================
 // МУЗЫКА
@@ -446,8 +485,7 @@ function playMusicNote() {
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime(peak, now + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.20);
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
+    osc.connect(gain); gain.connect(audioCtx.destination);
     osc.start(now); osc.stop(now + 0.22);
   } catch(e) {}
 
@@ -461,8 +499,7 @@ function playMusicNote() {
       gainC.gain.setValueAtTime(0.0001, now);
       gainC.gain.exponentialRampToValueAtTime(peakC, now + 0.01);
       gainC.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
-      oscC.connect(gainC);
-      gainC.connect(audioCtx.destination);
+      oscC.connect(gainC); gainC.connect(audioCtx.destination);
       oscC.start(now); oscC.stop(now + 0.24);
     } catch(e) {}
   }
@@ -478,8 +515,7 @@ function playMusicNote() {
       gainB.gain.setValueAtTime(0.0001, now);
       gainB.gain.exponentialRampToValueAtTime(peakB, now + 0.01);
       gainB.gain.exponentialRampToValueAtTime(0.0001, now + 0.40);
-      oscB.connect(gainB);
-      gainB.connect(audioCtx.destination);
+      oscB.connect(gainB); gainB.connect(audioCtx.destination);
       oscB.start(now); oscB.stop(now + 0.42);
     } catch(e) {}
   }
@@ -796,8 +832,7 @@ function spawnParticles(x, y, baseSize, color, useImage) {
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
       life: 0.6, maxLife: 0.6,
-      size: size,
-      color: color,
+      size: size, color: color,
       useImage: useImage,
       srcX: srcX, srcY: srcY,
       rotation: Math.random() * Math.PI * 2,
@@ -809,10 +844,8 @@ function spawnParticles(x, y, baseSize, color, useImage) {
 function updateParticles(dt) {
   for (var i = particles.length - 1; i >= 0; i--) {
     var p = particles[i];
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
-    p.vx *= 0.94;
-    p.vy *= 0.94;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vx *= 0.94; p.vy *= 0.94;
     p.rotation += p.rotSpeed * dt;
     p.life -= dt;
     if (p.life <= 0) particles.splice(i, 1);
@@ -869,58 +902,40 @@ function Square() {
 }
 
 Square.prototype.startPop = function() {
-  this.popPhase = "in";
-  this.popTime = 0;
-  this.dead = true;
+  this.popPhase = "in"; this.popTime = 0; this.dead = true;
 };
-
 Square.prototype.startMiss = function() {
-  this.missPhase = "blink";
-  this.missTime = 0;
-  this.dead = true;
+  this.missPhase = "blink"; this.missTime = 0; this.dead = true;
 };
 
 Square.prototype.update = function(mx, my, score, dt) {
   if (!dt) dt = 1/60;
-
   var d = getDifficulty();
 
   if (this.popPhase !== "none") {
     this.popTime += dt;
     if (this.popPhase === "in") {
       if (this.popTime >= POP_DURATION_IN) {
-        this.popPhase = "out";
-        this.popTime = 0;
+        this.popPhase = "out"; this.popTime = 0;
         spawnParticles(this.x, this.y, this.baseSize, this.color, !!(sqImage && !this.fake));
       }
     } else if (this.popPhase === "out") {
       if (this.popTime >= POP_DURATION_OUT) {
-        this.popPhase = "none";
-        this.removed = true;
+        this.popPhase = "none"; this.removed = true;
       }
     }
     return;
   }
-
   if (this.missPhase !== "none") {
     this.missTime += dt;
     if (this.missPhase === "blink") {
-      if (this.missTime >= MISS_BLINK_DURATION) {
-        this.missPhase = "fade";
-        this.missTime = 0;
-      }
+      if (this.missTime >= MISS_BLINK_DURATION) { this.missPhase = "fade"; this.missTime = 0; }
     } else if (this.missPhase === "fade") {
-      if (this.missTime >= MISS_FADE_DURATION) {
-        this.missPhase = "none";
-        this.removed = true;
-      }
+      if (this.missTime >= MISS_FADE_DURATION) { this.missPhase = "none"; this.removed = true; }
     }
     return;
   }
-
-  if (this.spawnTime < SPAWN_DURATION) {
-    this.spawnTime += dt;
-  }
+  if (this.spawnTime < SPAWN_DURATION) this.spawnTime += dt;
 
   var current = LEVELS[0];
   for (var i = 0; i < LEVELS.length; i++) {
@@ -932,7 +947,6 @@ Square.prototype.update = function(mx, my, score, dt) {
   if (!this.fake) {
     this.baseSize = Math.max(d.sizeMin, d.sizeStart - score * d.sizeStep);
   }
-
   if (this.teleportCooldown > 0) this.teleportCooldown -= dt;
 
   var boostFactor = 1.0;
@@ -943,17 +957,12 @@ Square.prototype.update = function(mx, my, score, dt) {
       this.boostTimer = BOOST_INTERVAL;
       if (!this.fake) soundBoost();
     }
-    if (this.boostActive > 0) {
-      this.boostActive -= dt;
-      boostFactor = d.boostMultiplier;
-    }
+    if (this.boostActive > 0) { this.boostActive -= dt; boostFactor = d.boostMultiplier; }
   }
 
-  var dx = this.x - mx;
-  var dy = this.y - my;
+  var dx = this.x - mx, dy = this.y - my;
   var dist = Math.sqrt(dx*dx + dy*dy) || 1;
   dx /= dist; dy /= dist;
-
   var moveX = 0, moveY = 0;
 
   if (this.behavior === "run" || this.behavior === "boost" ||
@@ -961,26 +970,20 @@ Square.prototype.update = function(mx, my, score, dt) {
       this.behavior === "teleport") {
     moveX = dx * this.speed * boostFactor;
     moveY = dy * this.speed * boostFactor;
-
-    if (this.behavior === "teleport" &&
-        this.teleportCooldown <= 0 &&
-        dist < TELEPORT_RADIUS) {
+    if (this.behavior === "teleport" && this.teleportCooldown <= 0 && dist < TELEPORT_RADIUS) {
       var newX, newY, attempts = 0;
       do {
         newX = Math.random() * (W - 100) + 50;
         newY = Math.random() * (H - 100) + 50;
         attempts++;
-      } while (
-        attempts < 20 &&
+      } while (attempts < 20 &&
         (Math.sqrt((newX-mx)*(newX-mx)+(newY-my)*(newY-my)) < TELEPORT_MIN_DIST ||
-         overlapsExitZone(newX, newY, this.baseSize))
-      );
+         overlapsExitZone(newX, newY, this.baseSize)));
       this.x = newX; this.y = newY;
       this.teleportCooldown = TELEPORT_COOLDOWN;
       if (!this.fake) soundTeleport();
       return;
     }
-
     if (this.behavior === "disguise") {
       this.disguiseTimer--;
       if (this.disguiseTimer <= 0) {
@@ -993,25 +996,21 @@ Square.prototype.update = function(mx, my, score, dt) {
   } else if (this.behavior === "hunt") {
     this.huntTimer--;
     if (this.huntTimer <= 0) {
-      moveX = -dx * this.speed * 1.5;
-      moveY = -dy * this.speed * 1.5;
+      moveX = -dx * this.speed * 1.5; moveY = -dy * this.speed * 1.5;
       this.huntTimer = 90;
     } else {
-      moveX = dx * this.speed * 0.5;
-      moveY = dy * this.speed * 0.5;
+      moveX = dx * this.speed * 0.5; moveY = dy * this.speed * 0.5;
     }
   }
 
-  var newX = this.x + moveX;
-  var newY = this.y + moveY;
-
-  if (overlapsExitZone(newX, newY, this.baseSize)) {
-    if (!overlapsExitZone(newX, this.y, this.baseSize)) { newY = this.y; }
-    else if (!overlapsExitZone(this.x, newY, this.baseSize)) { newX = this.x; }
-    else { newX = this.x; newY = this.y; }
+  var newX2 = this.x + moveX;
+  var newY2 = this.y + moveY;
+  if (overlapsExitZone(newX2, newY2, this.baseSize)) {
+    if (!overlapsExitZone(newX2, this.y, this.baseSize)) { newY2 = this.y; }
+    else if (!overlapsExitZone(this.x, newY2, this.baseSize)) { newX2 = this.x; }
+    else { newX2 = this.x; newY2 = this.y; }
   }
-
-  this.x = newX; this.y = newY;
+  this.x = newX2; this.y = newY2;
   this.x = Math.max(this.baseSize, Math.min(W - this.baseSize, this.x));
   this.y = Math.max(this.baseSize, Math.min(H - this.baseSize, this.y));
 };
@@ -1058,29 +1057,21 @@ Square.prototype.collides = function(mx, my) {
 Square.prototype.draw = function() {
   var size = this.getCurrentSize();
   if (size <= 0) return;
-
   var alpha = this.getAlpha();
   var redFlash = this.getRedFlash();
-
   ctx.globalAlpha = alpha;
-
   var half = size / 2;
   var x = this.x - half;
   var y = this.y - half;
-
   var PAD = 3;
-  var padX = x - PAD;
-  var padY = y - PAD;
-  var padSize = size + PAD * 2;
+  var padX = x - PAD, padY = y - PAD, padSize = size + PAD * 2;
 
-  // тень — только у настоящего, светлее
   if (!this.fake) {
     ctx.save();
     ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
     ctx.shadowBlur = 8;
     ctx.shadowOffsetX = 3;
     ctx.shadowOffsetY = 4;
-
     if (sqImage) {
       ctx.drawImage(sqImage, padX, padY, padSize, padSize);
     } else {
@@ -1091,7 +1082,6 @@ Square.prototype.draw = function() {
     ctx.restore();
   }
 
-  // подложка
   if (sqImage) {
     ctx.drawImage(sqImage, padX, padY, padSize, padSize);
     ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
@@ -1102,7 +1092,6 @@ Square.prototype.draw = function() {
     ctx.fillRect(padX, padY, padSize, padSize);
   }
 
-  // сам квадратик
   if (sqImage) {
     ctx.drawImage(sqImage, x, y, size, size);
   } else {
@@ -1114,7 +1103,6 @@ Square.prototype.draw = function() {
     ctx.fillStyle = "rgba(255, 0, 0, " + redFlash + ")";
     ctx.fillRect(x, y, size, size);
   }
-
   ctx.globalAlpha = 1;
 };
 
@@ -1148,6 +1136,7 @@ var game = {
   mode: "timed",
   score: 0,
   timeLeft: 30,
+  elapsedTime: 0,
   record: 0,
   square: null,
   fakeSquares: [],
@@ -1156,22 +1145,27 @@ var game = {
   buttons: [],
   gameOverTime: 0,
   gameOverMessage: "",
+  sprintDone: false,
 
   reset: function() {
+    var d = getDifficulty();
     this.square = new Square();
     this.fakeSquares = [];
     this.deadSquares = [];
     this.score = 0;
-    this.timeLeft = 30;
+    this.elapsedTime = 0;
+    this.timeLeft = d.timedSeconds;
     popups = [];
     particles = [];
     this.gameOverTime = 0;
     this.gameOverMessage = "";
+    this.sprintDone = false;
   },
 
   start: function(mode) {
-    this.reset();
     this.mode = mode;
+    currentMode = mode;
+    this.reset();
     this.state = PLAYING;
     hideFileLabel();
     hideHexInput();
@@ -1180,18 +1174,72 @@ var game = {
     setMusicMode("game");
   },
 
+  // обычный конец игры (для "На время" и "Точность")
   end: function() {
     this.state = GAME_OVER;
     this.gameOverTime = 0;
-    this.gameOverMessage = pickMessage(this.score);
-
     var d = getDifficulty();
-    var record = loadRecord(d.id);
-    if (this.score > record) {
-      saveRecord(d.id, this.score);
-    }
-    this.record = loadRecord(d.id);
 
+    if (this.mode === "timed") {
+      this.gameOverMessage = pickScoreMessage(this.score);
+    } else if (this.mode === "accuracy") {
+      this.gameOverMessage = pickScoreMessage(this.score);
+    }
+
+    var rec = loadRecord(this.mode, d.id);
+    if (this.mode === "sprint") {
+      // время меньше = лучше
+    } else {
+      if (this.score > rec) {
+        saveRecord(this.mode, d.id, this.score);
+      }
+    }
+    this.record = loadRecord(this.mode, d.id);
+
+    soundGameOver();
+    setMusicMode("gameover");
+  },
+
+  // финиш спринта
+  finishSprint: function() {
+    this.state = GAME_OVER;
+    this.gameOverTime = 0;
+    this.gameOverMessage = pickSprintMessage(this.elapsedTime);
+    var d = getDifficulty();
+    var rec = loadRecord("sprint", d.id);
+    if (rec === 0 || this.elapsedTime < rec) {
+      saveRecord("sprint", d.id, this.elapsedTime);
+    }
+    this.record = loadRecord("sprint", d.id);
+    soundFinish();
+    setMusicMode("gameover");
+  },
+
+  // выход из свободного — экран "уже уходишь?"
+  quitEndless: function() {
+    this.state = ENDLESS_QUIT;
+    var d = getDifficulty();
+    var rec = loadRecord("endless", d.id);
+    if (this.score > rec) {
+      saveRecord("endless", d.id, this.score);
+    }
+    this.record = loadRecord("endless", d.id);
+    this.gameOverMessage = pickEndlessMessage();
+    soundGameOver();
+    setMusicMode("gameover");
+  },
+
+  // выход из точности — экран окончания
+  quitAccuracy: function() {
+    this.state = GAME_OVER;
+    this.gameOverTime = 0;
+    var d = getDifficulty();
+    this.gameOverMessage = pickScoreMessage(this.score);
+    var rec = loadRecord("accuracy", d.id);
+    if (this.score > rec) {
+      saveRecord("accuracy", d.id, this.score);
+    }
+    this.record = loadRecord("accuracy", d.id);
     soundGameOver();
     setMusicMode("gameover");
   },
@@ -1200,7 +1248,7 @@ var game = {
     updatePopups(dt);
     updateParticles(dt);
 
-    if (this.state === GAME_OVER) {
+    if (this.state === GAME_OVER || this.state === ENDLESS_QUIT) {
       if (this.gameOverTime < GAMEOVER_FADE_DURATION) {
         this.gameOverTime += dt;
       }
@@ -1217,9 +1265,7 @@ var game = {
     var mx = this.mouse.x, my = this.mouse.y;
     this.square.update(mx, my, this.score, dt);
 
-    if (this.square.removed) {
-      this.square = new Square();
-    }
+    if (this.square.removed) this.square = new Square();
 
     if (this.square.behavior === "multiply" && this.fakeSquares.length < 2) {
       if (Math.random() < 0.015) {
@@ -1232,7 +1278,6 @@ var game = {
       this.fakeSquares[i].update(mx, my, this.score, dt);
       if (this.fakeSquares[i].removed) this.fakeSquares.splice(i, 1);
     }
-
     for (var d2 = this.deadSquares.length - 1; d2 >= 0; d2--) {
       this.deadSquares[d2].update(mx, my, this.score, dt);
       if (this.deadSquares[d2].removed) this.deadSquares.splice(d2, 1);
@@ -1241,10 +1286,15 @@ var game = {
     if (this.mode === "timed") {
       this.timeLeft -= dt;
       if (this.timeLeft <= 0) { this.timeLeft = 0; this.end(); }
+    } else if (this.mode === "sprint") {
+      this.elapsedTime += dt;
+      var d = getDifficulty();
+      if (this.score >= d.sprintTarget && !this.sprintDone) {
+        this.sprintDone = true;
+        this.finishSprint();
+      }
     }
-  },
-
-  click: function(px, py) {
+    click: function(px, py) {
     unlockAudio();
 
     if (this.state === MENU) {
@@ -1252,42 +1302,71 @@ var game = {
         var b = this.buttons[i];
         if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) {
           soundClick();
-          if (b.id === "timed") this.start("timed");
-          if (b.id === "endless") this.start("endless");
+          if (b.id === "select_mode") this.state = MODE_SELECT;
           if (b.id === "settings") this.state = SETTINGS;
+          if (b.id === "achievements") { this.state = SOON; this.soonTitle = "ДОСТИЖЕНИЯ"; }
+          if (b.id === "stats") { this.state = SOON; this.soonTitle = "СТАТИСТИКА"; }
           return;
+        }
+      }
+      return;
+    }
+
+    if (this.state === SOON) {
+      for (var si = 0; si < this.buttons.length; si++) {
+        var sb0 = this.buttons[si];
+        if (px >= sb0.x && px <= sb0.x + sb0.w && py >= sb0.y && py <= sb0.y + sb0.h) {
+          soundClick();
+          if (sb0.id === "back") this.state = MENU;
+          return;
+        }
+      }
+      return;
+    }
+
+    if (this.state === MODE_SELECT) {
+      for (var mi = 0; mi < this.buttons.length; mi++) {
+        var mb = this.buttons[mi];
+        if (px >= mb.x && px <= mb.x + mb.w && py >= mb.y && py <= mb.y + mb.h) {
+          soundClick();
+          if (mb.id === "back") { this.state = MENU; return; }
+          if (mb.id.indexOf("mode_") === 0) {
+            currentMode = mb.id.substring(5);
+            this.state = MODE_INFO;
+            return;
+          }
+        }
+      }
+      return;
+    }
+
+    if (this.state === MODE_INFO) {
+      for (var ki = 0; ki < this.buttons.length; ki++) {
+        var kb = this.buttons[ki];
+        if (px >= kb.x && px <= kb.x + kb.w && py >= kb.y && py <= kb.y + kb.h) {
+          soundClick();
+          if (kb.id === "back") { this.state = MODE_SELECT; return; }
+          if (kb.id.indexOf("diff_") === 0) {
+            currentDifficulty = kb.id.substring(5);
+            try { localStorage.setItem("catchme_difficulty", currentDifficulty); } catch(e) {}
+            this.start(currentMode);
+            return;
+          }
         }
       }
       return;
     }
 
     if (this.state === SETTINGS) {
-      for (var k = 0; k < this.buttons.length; k++) {
-        var sb = this.buttons[k];
-        if (px >= sb.x && px <= sb.x + sb.w && py >= sb.y && py <= sb.y + sb.h) {
+      for (var sk = 0; sk < this.buttons.length; sk++) {
+        var skb = this.buttons[sk];
+        if (px >= skb.x && px <= skb.x + skb.w && py >= skb.y && py <= skb.y + skb.h) {
           soundClick();
-          if (sb.id === "bg") this.state = SETTINGS_BG;
-          if (sb.id === "square") this.state = SETTINGS_SQUARE;
-          if (sb.id === "sound") this.state = SETTINGS_SOUND;
-          if (sb.id === "difficulty") this.state = SETTINGS_DIFFICULTY;
-          if (sb.id === "back") this.state = MENU;
+          if (skb.id === "bg") this.state = SETTINGS_BG;
+          if (skb.id === "square") this.state = SETTINGS_SQUARE;
+          if (skb.id === "sound") this.state = SETTINGS_SOUND;
+          if (skb.id === "back") this.state = MENU;
           return;
-        }
-      }
-      return;
-    }
-
-    if (this.state === SETTINGS_DIFFICULTY) {
-      for (var dk = 0; dk < this.buttons.length; dk++) {
-        var db = this.buttons[dk];
-        if (px >= db.x && px <= db.x + db.w && py >= db.y && py <= db.y + db.h) {
-          soundClick();
-          if (db.id === "back") { this.state = SETTINGS; return; }
-          if (db.id.indexOf("diff_") === 0) {
-            currentDifficulty = db.id.substring(5);
-            try { localStorage.setItem("catchme_difficulty", currentDifficulty); } catch(e) {}
-            return;
-          }
         }
       }
       return;
@@ -1347,12 +1426,23 @@ var game = {
         var eb = window.__exitButton;
         if (px >= eb.x && px <= eb.x + eb.w && py >= eb.y && py <= eb.y + eb.h) {
           soundClick();
-          this.state = MENU;
-          setMusicMode("menu");
+          if (this.mode === "endless") {
+            this.quitEndless();
+          } else if (this.mode === "accuracy") {
+            this.quitAccuracy();
+          } else if (this.mode === "sprint") {
+            // в спринте кнопка ✕ — просто выход без экрана
+            this.state = MENU;
+            setMusicMode("menu");
+          } else {
+            this.state = MENU;
+            setMusicMode("menu");
+          }
           return;
         }
       }
 
+      // попал в настоящий
       if (!this.square.dead && this.square.collides(px, py)) {
         this.score++;
         spawnPopup(px, py);
@@ -1384,9 +1474,18 @@ var game = {
           }
         }
         this.fakeSquares = [];
+
+        if (this.mode === "sprint") {
+          var d = getDifficulty();
+          if (this.score >= d.sprintTarget && !this.sprintDone) {
+            this.sprintDone = true;
+            this.finishSprint();
+          }
+        }
         return;
       }
 
+      // клик по ложному
       for (var fi2 = this.fakeSquares.length - 1; fi2 >= 0; fi2--) {
         var fsq = this.fakeSquares[fi2];
         if (!fsq.dead && fsq.collides(px, py)) {
@@ -1394,7 +1493,24 @@ var game = {
           fsq.startMiss();
           this.deadSquares.push(fsq);
           this.fakeSquares.splice(fi2, 1);
+
+          if (this.mode === "accuracy") {
+            this.score--;
+          }
           return;
+        }
+      }
+
+      // клик по пустому месту — в точности минус
+      if (this.mode === "accuracy") {
+        // проверяем, не попал ли клик в мёртвые (летящие) квадратики
+        var hitDead = false;
+        for (var di = 0; di < this.deadSquares.length; di++) {
+          if (this.deadSquares[di].collides(px, py)) { hitDead = true; break; }
+        }
+        if (!hitDead) {
+          soundMissClick();
+          this.score--;
         }
       }
 
@@ -1403,7 +1519,6 @@ var game = {
 
     if (this.state === GAME_OVER) {
       if (this.gameOverTime < GAMEOVER_FADE_DURATION) return;
-
       for (var j = 0; j < this.buttons.length; j++) {
         var b2 = this.buttons[j];
         if (px >= b2.x && px <= b2.x + b2.w && py >= b2.y && py <= b2.y + b2.h) {
@@ -1416,6 +1531,28 @@ var game = {
           return;
         }
       }
+      return;
+    }
+
+    if (this.state === ENDLESS_QUIT) {
+      if (this.gameOverTime < GAMEOVER_FADE_DURATION) return;
+      for (var ek = 0; ek < this.buttons.length; ek++) {
+        var eb2 = this.buttons[ek];
+        if (px >= eb2.x && px <= eb2.x + eb2.w && py >= eb2.y && py <= eb2.y + eb2.h) {
+          soundClick();
+          if (eb2.id === "continue") {
+            this.state = PLAYING;
+            setMusicMode("game");
+            return;
+          }
+          if (eb2.id === "exit") {
+            this.state = MENU;
+            setMusicMode("menu");
+            return;
+          }
+        }
+      }
+      return;
     }
   },
 
@@ -1440,21 +1577,23 @@ var game = {
       ctx.fillRect(0, 0, W, H);
     }
 
-    // затемнение фона на экране окончания (появляется вместе с экраном)
-    if (this.state === GAME_OVER) {
+    if (this.state === GAME_OVER || this.state === ENDLESS_QUIT) {
       var progress = Math.min(1, this.gameOverTime / GAMEOVER_FADE_DURATION);
       ctx.fillStyle = "rgba(0, 0, 0, " + (0.25 * progress) + ")";
       ctx.fillRect(0, 0, W, H);
     }
 
     if (this.state === MENU) this.drawMenu();
+    else if (this.state === SOON) this.drawSoon();
+    else if (this.state === MODE_SELECT) this.drawModeSelect();
+    else if (this.state === MODE_INFO) this.drawModeInfo();
     else if (this.state === PLAYING) this.drawPlaying();
     else if (this.state === GAME_OVER) this.drawGameOver();
+    else if (this.state === ENDLESS_QUIT) this.drawEndlessQuit();
     else if (this.state === SETTINGS) this.drawSettings();
     else if (this.state === SETTINGS_BG) this.drawSettingsBg();
     else if (this.state === SETTINGS_SQUARE) this.drawSettingsSquare();
     else if (this.state === SETTINGS_SOUND) this.drawSettingsSound();
-    else if (this.state === SETTINGS_DIFFICULTY) this.drawSettingsDifficulty();
   },
 
   drawMenu: function() {
@@ -1467,16 +1606,151 @@ var game = {
     ctx.font = "bold 52px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("ПОЙМАЙ МЕНЯ", W / 2, H * 0.25);
+    ctx.fillText("ПОЙМАЙ МЕНЯ", W / 2, H * 0.18);
 
     var bw = Math.min(320, W - 60);
     var bx = (W - bw) / 2;
 
-    var b1 = { x: bx, y: H * 0.42, w: bw, h: 60, text: "На время (30 сек)", id: "timed" };
-    var b2 = { x: bx, y: H * 0.42 + 75, w: bw, h: 60, text: "Бесконечный", id: "endless" };
-    var b3 = { x: bx, y: H * 0.42 + 150, w: bw, h: 60, text: "Настройки", id: "settings" };
-    this.buttons = [b1, b2, b3];
+    var b1 = { x: bx, y: H * 0.30, w: bw, h: 60, text: "Выбрать режим", id: "select_mode" };
+    var b2 = { x: bx, y: H * 0.30 + 75, w: bw, h: 60, text: "Настройки", id: "settings" };
+    var b3 = { x: bx, y: H * 0.30 + 150, w: bw, h: 60, text: "Достижения", id: "achievements" };
+    var b4 = { x: bx, y: H * 0.30 + 225, w: bw, h: 60, text: "Статистика", id: "stats" };
+    this.buttons = [b1, b2, b3, b4];
     drawButtons(this.buttons);
+  },
+
+  drawSoon: function() {
+    exitButtonZone = null;
+    this.buttons = [];
+    hideFileLabel();
+    hideHexInput();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 52px " + FONT_FAMILY;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(this.soonTitle || "СКОРО", W / 2, H * 0.25);
+
+    ctx.font = "24px " + FONT_FAMILY;
+    ctx.fillStyle = "#c0c0d0";
+    ctx.fillText("Скоро...", W / 2, H * 0.40);
+
+    var bw = Math.min(320, W - 60);
+    var bx = (W - bw) / 2;
+    var bBack = { x: bx, y: H * 0.65, w: bw, h: 60, text: "Назад", id: "back" };
+    this.buttons = [bBack];
+    drawButtons(this.buttons);
+  },
+
+  drawModeSelect: function() {
+    exitButtonZone = null;
+    this.buttons = [];
+    hideFileLabel();
+    hideHexInput();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 40px " + FONT_FAMILY;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("ВЫБРАТЬ РЕЖИМ", W / 2, H * 0.10);
+
+    var bw = Math.min(340, W - 60);
+    var bx = (W - bw) / 2;
+    var startY = H * 0.22;
+    var btnH = 55;
+    var gap = 15;
+
+    this.buttons = [];
+    for (var i = 0; i < MODES.length; i++) {
+      var m = MODES[i];
+      var by = startY + i * (btnH + gap);
+      var btn = { x: bx, y: by, w: bw, h: btnH, text: m.name, id: "mode_" + m.id };
+      this.buttons.push(btn);
+      drawButtons([btn]);
+    }
+
+    var backY = startY + MODES.length * (btnH + gap) + 10;
+    if (backY + btnH > H - 20) backY = H - btnH - 20;
+    var bBack = { x: bx, y: backY, w: bw, h: btnH, text: "Назад", id: "back" };
+    this.buttons.push(bBack);
+    drawButtons([bBack]);
+  },
+
+  drawModeInfo: function() {
+    exitButtonZone = null;
+    this.buttons = [];
+    hideFileLabel();
+    hideHexInput();
+
+    var mode = null;
+    for (var i = 0; i < MODES.length; i++) {
+      if (MODES[i].id === currentMode) { mode = MODES[i]; break; }
+    }
+    if (!mode) mode = MODES[0];
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 38px " + FONT_FAMILY;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(mode.name.toUpperCase(), W / 2, H * 0.07);
+
+    // описание — с переносами
+    ctx.font = "16px " + FONT_FAMILY;
+    ctx.fillStyle = "#c0c0d0";
+    var desc = mode.desc;
+    var maxWidth = Math.min(W - 60, 420);
+    var words = desc.split(" ");
+    var line = "";
+    var lines = [];
+    for (var wi = 0; wi < words.length; wi++) {
+      var test = line + (line ? " " : "") + words[wi];
+      if (ctx.measureText(test).width > maxWidth && line) {
+        lines.push(line);
+        line = words[wi];
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+
+    var descY = H * 0.15;
+    for (var li = 0; li < lines.length; li++) {
+      ctx.fillText(lines[li], W / 2, descY + li * 22);
+    }
+
+    // "Выберите сложность:"
+    var labelY = descY + lines.length * 22 + 20;
+    ctx.fillStyle = "#a0a0b0";
+    ctx.font = "16px " + FONT_FAMILY;
+    ctx.fillText("Выберите сложность:", W / 2, labelY);
+
+    // 4 кнопки сложности
+    var bw = Math.min(340, W - 60);
+    var bx = (W - bw) / 2;
+    var startY = labelY + 25;
+    var btnH = 52;
+    var gap = 8;
+
+    this.buttons = [];
+    for (var d = 0; d < DIFFICULTIES.length; d++) {
+      var diff = DIFFICULTIES[d];
+      var by = startY + d * (btnH + gap);
+      var label = diff.name + " — " + getDifficultyLabel(currentMode, diff);
+      var isActive = (diff.id === currentDifficulty);
+      if (isActive) label += " ✓";
+      var btn = { x: bx, y: by, w: bw, h: btnH, text: label, id: "diff_" + diff.id };
+      this.buttons.push(btn);
+      drawButtons([btn]);
+    }
+
+    // кнопка "Назад" — МЕНЬШЕ, как просили (45px вместо 55)
+    var backY = startY + DIFFICULTIES.length * (btnH + gap) + 5;
+    if (backY + 45 > H - 15) backY = H - 45 - 15;
+    var smallW = Math.min(200, bw - 40);
+    var smallX = (W - smallW) / 2;
+    var bBack = { x: smallX, y: backY, w: smallW, h: 45, text: "Назад", id: "back" };
+    this.buttons.push(bBack);
+    drawButtons([bBack]);
   },
 
   drawSettings: function() {
@@ -1489,68 +1763,17 @@ var game = {
     ctx.font = "bold 44px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("НАСТРОЙКИ", W / 2, H * 0.13);
+    ctx.fillText("НАСТРОЙКИ", W / 2, H * 0.16);
 
     var bw = Math.min(320, W - 60);
     var bx = (W - bw) / 2;
 
-    var bBg = { x: bx, y: H * 0.26, w: bw, h: 55, text: "Фон", id: "bg" };
-    var bSq = { x: bx, y: H * 0.26 + 68, w: bw, h: 55, text: "Квадратик", id: "square" };
-    var bSnd = { x: bx, y: H * 0.26 + 136, w: bw, h: 55, text: "Звук", id: "sound" };
-    var bDiff = { x: bx, y: H * 0.26 + 204, w: bw, h: 55, text: "Сложность", id: "difficulty" };
-    var bBack = { x: bx, y: H * 0.26 + 290, w: bw, h: 55, text: "Назад", id: "back" };
-    this.buttons = [bBg, bSq, bSnd, bDiff, bBack];
+    var bBg = { x: bx, y: H * 0.32, w: bw, h: 60, text: "Фон", id: "bg" };
+    var bSq = { x: bx, y: H * 0.32 + 75, w: bw, h: 60, text: "Квадратик", id: "square" };
+    var bSnd = { x: bx, y: H * 0.32 + 150, w: bw, h: 60, text: "Звук", id: "sound" };
+    var bBack = { x: bx, y: H * 0.32 + 240, w: bw, h: 60, text: "Назад", id: "back" };
+    this.buttons = [bBg, bSq, bSnd, bBack];
     drawButtons(this.buttons);
-  },
-
-  drawSettingsDifficulty: function() {
-    exitButtonZone = null;
-    this.buttons = [];
-    hideFileLabel();
-    hideHexInput();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 40px " + FONT_FAMILY;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("СЛОЖНОСТЬ", W / 2, H * 0.10);
-
-    var bw = Math.min(320, W - 60);
-    var bx = (W - bw) / 2;
-    var btnH = 55;
-    var gap = 12;
-    var startY = H * 0.20;
-
-    this.buttons = [];
-
-    for (var i = 0; i < DIFFICULTIES.length; i++) {
-      var d = DIFFICULTIES[i];
-      var isActive = (d.id === currentDifficulty);
-      var rec = loadRecord(d.id);
-      var label = d.name;
-      if (isActive) label += "   ✓";
-
-      var by = startY + i * (btnH + gap + 22);
-
-      // кнопка
-      var btn = { x: bx, y: by, w: bw, h: btnH, text: label, id: "diff_" + d.id };
-      this.buttons.push(btn);
-      drawButtons([btn]);
-
-      // рекорд под кнопкой
-      ctx.fillStyle = "#9090a0";
-      ctx.font = "15px " + FONT_FAMILY;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      ctx.fillText("Рекорд: " + rec, W / 2, by + btnH + 4);
-    }
-
-    // кнопка назад
-    var backY = startY + DIFFICULTIES.length * (btnH + gap + 22) + 10;
-    if (backY + btnH > H - 20) backY = H - btnH - 20;
-    var bBack = { x: bx, y: backY, w: bw, h: btnH, text: "Назад", id: "back" };
-    this.buttons.push(bBack);
-    drawButtons([bBack]);
   },
 
   drawSettingsBg: function() {
@@ -1899,17 +2122,27 @@ var game = {
     drawPopups();
     drawParticles();
 
+    // счёт
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 24px " + FONT_FAMILY;
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText("Очки: " + this.score, 20, 20);
 
-    ctx.font = "20px " + FONT_FAMILY;
-    if (this.mode === "timed") {
-      ctx.fillText("Время: " + Math.ceil(this.timeLeft), 20, 52);
+    if (this.mode === "sprint") {
+      var d = getDifficulty();
+      ctx.fillText("Поймано: " + this.score + "/" + d.sprintTarget, 20, 20);
+      ctx.font = "20px " + FONT_FAMILY;
+      ctx.fillText("Время: " + this.elapsedTime.toFixed(1) + " сек", 20, 52);
     } else {
-      ctx.fillText("Бесконечный", 20, 52);
+      ctx.fillText("Очки: " + this.score, 20, 20);
+      ctx.font = "20px " + FONT_FAMILY;
+      if (this.mode === "timed") {
+        ctx.fillText("Время: " + Math.ceil(this.timeLeft), 20, 52);
+      } else if (this.mode === "accuracy") {
+        ctx.fillText("Точность", 20, 52);
+      } else {
+        ctx.fillText("Свободный", 20, 52);
+      }
     }
 
     var hover = game.mouse.x >= exitX && game.mouse.x <= exitX + exitSize &&
@@ -1939,25 +2172,51 @@ var game = {
     hideHexInput();
 
     var progress = Math.min(1, this.gameOverTime / GAMEOVER_FADE_DURATION);
-
     ctx.globalAlpha = progress;
 
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 48px " + FONT_FAMILY;
+    ctx.font = "bold 44px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("Время вышло", W / 2, H * 0.22);
 
-    ctx.font = "28px " + FONT_FAMILY;
-    ctx.fillText("Твой счёт: " + this.score, W / 2, H * 0.36);
+    // заголовок зависит от режима
+    if (this.mode === "timed") {
+      ctx.fillText("ВРЕМЯ ВЫШЛО", W / 2, H * 0.18);
+    } else if (this.mode === "sprint") {
+      ctx.fillText("ФИНИШ!", W / 2, H * 0.18);
+    } else if (this.mode === "accuracy") {
+      ctx.fillText("Ты закончил", W / 2, H * 0.18);
+    }
 
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "22px " + FONT_FAMILY;
-    ctx.fillText("Рекорд: " + this.record, W / 2, H * 0.44);
+    ctx.font = "24px " + FONT_FAMILY;
+
+    if (this.mode === "sprint") {
+      // время и лучшее
+      var curTime = this.elapsedTime.toFixed(1);
+      var bestTime = (this.record / 1000).toFixed(1);
+      // хранение рекорда в спринте — как целое число миллисекунд
+      // но у нас elapsedTime в секундах
+      // поэтому переделаем: рекорд храним в секундах * 1000 (миллисекунды)
+      // НО чтобы не усложнять — сохраню как секунды * 10 (десятые доли секунды)
+      // и при показе разделю на 10
+      // проще: храним целое = секунды * 1000
+      // ПРОСТО: храним как секунды с 1 знаком после запятой умноженные на 10
+      // Переделаем: сохранение в finishSprint использует Math.round(elapsedTime * 1000)
+      // Сейчас вывод:
+      ctx.fillText("Время: " + curTime + " сек", W / 2, H * 0.34);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "20px " + FONT_FAMILY;
+      ctx.fillText("Лучшее: " + (this.record / 1000).toFixed(1) + " сек", W / 2, H * 0.42);
+    } else {
+      ctx.fillText("Твой счёт: " + this.score, W / 2, H * 0.34);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "20px " + FONT_FAMILY;
+      ctx.fillText("Рекорд: " + this.record, W / 2, H * 0.42);
+    }
 
     ctx.fillStyle = "#f0f0f0";
-    ctx.font = "20px " + FONT_FAMILY;
-    ctx.fillText(this.gameOverMessage, W / 2, H * 0.53);
+    ctx.font = "18px " + FONT_FAMILY;
+    ctx.fillText(this.gameOverMessage, W / 2, H * 0.52);
 
     ctx.globalAlpha = 1;
 
@@ -1967,7 +2226,45 @@ var game = {
       var half = (bw - 20) / 2;
 
       var b1 = { x: bx, y: H * 0.68, w: half, h: 55, text: "Ещё раз", id: "again" };
-      var b2 = { x: bx + half + 20, y: H * 0.68, w: half, h: 55, text: "В меню", id: "menu" };
+      var b2 = { x: bx + half + 20, y: H * 0.68, w: half, h: 55, text: "Выйти", id: "menu" };
+      this.buttons = [b1, b2];
+      drawButtons(this.buttons);
+    }
+  },
+
+  drawEndlessQuit: function() {
+    exitButtonZone = null;
+    this.buttons = [];
+    hideFileLabel();
+    hideHexInput();
+
+    var progress = Math.min(1, this.gameOverTime / GAMEOVER_FADE_DURATION);
+    ctx.globalAlpha = progress;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 44px " + FONT_FAMILY;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("УЖЕ УХОДИШЬ?", W / 2, H * 0.22);
+
+    ctx.font = "22px " + FONT_FAMILY;
+    ctx.fillText("Рекорд: " + this.record, W / 2, H * 0.36);
+
+    ctx.fillStyle = "#f0f0f0";
+    ctx.font = "20px " + FONT_FAMILY;
+    ctx.fillText(this.gameOverMessage, W / 2, H * 0.46);
+
+    ctx.globalAlpha = 1;
+
+    if (progress >= 1) {
+      var totalW = Math.min(360, W - 40);
+      var totalX = (W - totalW) / 2;
+      var gap = 12;
+      var continueW = Math.round((totalW - gap) * 0.7);
+      var exitW = totalW - gap - continueW;
+
+      var b1 = { x: totalX, y: H * 0.62, w: continueW, h: 60, text: "Продолжить", id: "continue" };
+      var b2 = { x: totalX + continueW + gap, y: H * 0.62, w: exitW, h: 60, text: "Выйти", id: "exit" };
       this.buttons = [b1, b2];
       drawButtons(this.buttons);
     }
@@ -1994,7 +2291,7 @@ function drawButtons(list) {
     ctx.strokeRect(b.x, b.y, b.w, b.h);
 
     ctx.fillStyle = "#f0f0f0";
-    ctx.font = "bold 18px " + FONT_FAMILY;
+    ctx.font = "bold 17px " + FONT_FAMILY;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(b.text, b.x + b.w/2, b.y + b.h/2);
