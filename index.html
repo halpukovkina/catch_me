@@ -1201,7 +1201,12 @@ var SIGNATURES = [
   "вы че пидорасы пидоры",
   "щас реально херово. в лс отвечу ток близким.",
   "нихуя ты маладец",
-  "бля нахуя мне ноутбук"
+  "бля нахуя мне ноутбук",
+  "торнадо асиан микс ето ахуенна ребята попробуйте",
+  "милый ублюдок",
+  "у меня уже мозг плавица",
+  "бляяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяя",
+  "человек паук в новом фильме не умрет я всех наебала"
 ];
 
 var currentSignature = "";
@@ -1246,7 +1251,7 @@ function updateSignatureForState() {
       var availableW = W - 28;
       if (signatureWidth > availableW) {
         signatureScrolling = true;
-        signatureScrollX = W; // начнём справа за экраном
+        signatureScrollX = 14; // начнём справа за экраном
       }
     }
   }
@@ -1254,11 +1259,11 @@ function updateSignatureForState() {
 
 function updateSignatureScroll(dt) {
   if (!signatureScrolling) return;
-  // 30 пикс/сек влево
-  signatureScrollX -= 30 * dt;
-  // если полностью ушла влево — возвращаем вправо
+  // 50 пикс/сек влево — быстрее
+  signatureScrollX -= 50 * dt;
+  // если полностью ушла влево — возвращаем в левый угол
   if (signatureScrollX + signatureWidth < -20) {
-    signatureScrollX = W + 20;
+    signatureScrollX = 14;
   }
 }
 
@@ -2895,7 +2900,7 @@ var game = {
     y += 10;
 
     ctx.font = "bold 16px " + FONT_FAMILY;
-    ctx.fillStyle = "#f0c050";
+    ctx.fillStyle = "#ffffff";
     ctx.fillText("ПО РЕЖИМАМ", leftX, y);
     y += lineH + 4;
 
