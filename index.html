@@ -1206,7 +1206,19 @@ var SIGNATURES = [
   "милый ублюдок",
   "у меня уже мозг плавица",
   "бляяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяя",
-  "человек паук в новом фильме не умрет я всех наебала"
+  "человек паук в новом фильме не умрет я всех наебала",
+  "сливыыы виноград",
+  "я уже красный",
+  "кастрировать валеру - ❤️",
+  "за горами за лесами твою мать в очко ебали",
+  "бурмалда",
+  "драндулеты шмакадявка фигли мигли провокатор в подворотне бабка ежка не пускает нас домой",
+  "суп из семи залуп",
+  "бля вы вот умные такие, сказали мемасики с меллстроем добавить, вы чо думаете я их все помню что ли",
+  "пососи у у у у у да я богтаый уебок э у меня денег так много  э мое ебало коробка",
+  "вы знали шо вот в меню кубики летают и на них нажать можно такта",
+  "туда где движ",
+  "бля вадим лесин женится..."
 ];
 
 var currentSignature = "";
@@ -1214,6 +1226,8 @@ var signatureShownOnState = "";
 var signatureScrollX = 0;
 var signatureScrolling = false;
 var signatureWidth = 0;
+var signaturePauseTimer = 0;
+var signaturePhase = "idle"; // idle | pause | scroll | enter
 
 function pickSignature() {
   if (SIGNATURES.length === 0) return "";
@@ -1241,8 +1255,9 @@ function updateSignatureForState() {
     signatureShownOnState = game.state;
     signatureScrollX = 0;
     signatureScrolling = false;
+    signaturePauseTimer = 0;
+    signaturePhase = "idle"; // idle | pause | scroll
 
-    // измерим ширину при выборе — определим, влезает ли
     if (currentSignature) {
       ctx.save();
       ctx.font = "bold 17px " + FONT_FAMILY;
@@ -1251,7 +1266,9 @@ function updateSignatureForState() {
       var availableW = W - 28;
       if (signatureWidth > availableW) {
         signatureScrolling = true;
-        signatureScrollX = 14; // начнём справа за экраном
+        signatureScrollX = 14;
+        signaturePhase = "pause"; // сначала пауза
+        signaturePauseTimer = 2.5; // 2.5 секунды стоим
       }
     }
   }
@@ -1259,11 +1276,40 @@ function updateSignatureForState() {
 
 function updateSignatureScroll(dt) {
   if (!signatureScrolling) return;
-  // 50 пикс/сек влево — быстрее
-  signatureScrollX -= 50 * dt;
-  // если полностью ушла влево — возвращаем в левый угол
-  if (signatureScrollX + signatureWidth < -20) {
-    signatureScrollX = 14;
+
+  if (signaturePhase === "pause") {
+    // стоим на месте
+    signaturePauseTimer -= dt;
+    if (signaturePauseTimer <= 0) {
+      signaturePhase = "scroll";
+    }
+    return;
+  }
+
+  if (signaturePhase === "scroll") {
+    signatureScrollX -= 50 * dt;
+
+    // полностью ушла влево — начинаем цикл сначала
+    if (signatureScrollX + signatureWidth < -20) {
+      // появляемся справа за экраном
+      signatureScrollX = W + 20;
+      signaturePhase = "enter";
+    }
+    return;
+  }
+
+  if (signaturePhase === "enter") {
+    // едем влево до угла (14px)
+    var targetX = 14;
+    var speed = 80 * dt;
+    if (signatureScrollX - speed <= targetX) {
+      signatureScrollX = targetX;
+      signaturePhase = "pause";
+      signaturePauseTimer = 2.5; // стоим 2.5 сек
+    } else {
+      signatureScrollX -= speed;
+    }
+    return;
   }
 }
 
@@ -1293,6 +1339,7 @@ function drawSignature() {
 // ---------- ЛЕТАЮЩИЕ КВАДРАТИКИ В МЕНЮ ----------
 var menuSquares = [];
 var menuSquareSpawnTimer = 0;
+var menuTrails = []; // следы за квадратиками
 
 function spawnMenuSquare() {
   // появляется из-за края экрана
@@ -1300,7 +1347,13 @@ function spawnMenuSquare() {
   var x, y, vx, vy;
   var speed = 40 + Math.random() * 90; // пиксели в секунду
 
-  var size = 8 + Math.random() * 12;
+  // размер — два класса: маленькие и крупные, без середины
+  var size;
+  if (Math.random() < 0.5) {
+    size = 5 + Math.random() * 7;   // 5–12, маленькие
+  } else {
+    size = 14 + Math.random() * 11; // 14–25, крупные
+  }
 
   if (side === 0) {
     x = Math.random() * W;
@@ -1336,6 +1389,7 @@ function spawnMenuSquare() {
     popPhase: "none",
     popTime: 0,
     dead: false
+    trailTimer: 0
   });
 }
 
@@ -1349,6 +1403,13 @@ function updateMenuSquares(dt) {
     }
   }
 
+  // обновляем следы — уменьшаем жизнь, убираем мёртвые
+  for (var t = menuTrails.length - 1; t >= 0; t--) {
+    var tr = menuTrails[t];
+    tr.life -= dt;
+    if (tr.life <= 0) menuTrails.splice(t, 1);
+  }
+  
   var mx = game.mouse.x, my = game.mouse.y;
 
   for (var i = menuSquares.length - 1; i >= 0; i--) {
@@ -1370,6 +1431,20 @@ function updateMenuSquares(dt) {
         }
       }
       continue;
+    }
+
+    // создаём след — раз в 0.05 сек
+    sq.trailTimer -= dt;
+    if (sq.trailTimer <= 0) {
+      sq.trailTimer = 0.05;
+      menuTrails.push({
+        x: sq.x,
+        y: sq.y,
+        size: sq.size * 0.7,
+        color: sq.color,
+        life: 0.4,
+        maxLife: 0.4
+      });
     }
 
     // убегание от курсора — только когда активно меню
@@ -1405,6 +1480,16 @@ function updateMenuSquares(dt) {
 }
 
 function drawMenuSquares() {
+  // сначала следы (под квадратиками)
+  for (var t = 0; t < menuTrails.length; t++) {
+    var tr = menuTrails[t];
+    var trailAlpha = (tr.life / tr.maxLife) * 0.4;
+    ctx.globalAlpha = trailAlpha;
+    ctx.fillStyle = tr.color;
+    ctx.fillRect(tr.x - tr.size/2, tr.y - tr.size/2, tr.size, tr.size);
+  }
+
+  // потом сами квадратики
   for (var i = 0; i < menuSquares.length; i++) {
     var sq = menuSquares[i];
     var size = sq.size;
@@ -1600,10 +1685,9 @@ Square.prototype.update = function(mx, my, score, dt) {
   }
   this.speed = current.speed * d.speedMul;
   this.behavior = this.fake ? "run" : current.behavior;
-
-  if (!this.fake) {
-    this.baseSize = Math.max(d.sizeMin, d.sizeStart - score * d.sizeStep);
-  }
+  
+  this.baseSize = Math.max(d.sizeMin, d.sizeStart - score * d.sizeStep);
+  
   if (this.teleportCooldown > 0) this.teleportCooldown -= dt;
 
   var boostFactor = 1.0;
@@ -1948,10 +2032,12 @@ var game = {
     this.square.update(mx, my, this.score, dt);
     if (this.square.removed) this.square = new Square();
 
-    if (this.square.behavior === "multiply" && this.fakeSquares.length < 2) {
+      if (this.square.behavior === "multiply" && this.fakeSquares.length < 2) {
       if (Math.random() < 0.015) {
         var fs = new Square();
         fs.fake = true;
+        var dd = getDifficulty();
+        fs.baseSize = Math.max(dd.sizeMin, dd.sizeStart - this.score * dd.sizeStep);
         this.fakeSquares.push(fs);
       }
     }
