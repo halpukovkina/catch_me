@@ -1395,7 +1395,7 @@ function spawnMenuSquare() {
 
 function updateMenuSquares(dt) {
   // спавн — не больше 8 одновременно
-  if (game.state === MENU && menuSquares.length < 8) {
+  if (game.state === MENU && menuSquares.length < 25) {
     menuSquareSpawnTimer -= dt;
     if (menuSquareSpawnTimer <= 0) {
       spawnMenuSquare();
@@ -1479,13 +1479,12 @@ function updateMenuSquares(dt) {
   }
 }
 
-function drawMenuSquares() {
   // сначала следы (под квадратиками)
   for (var t = 0; t < menuTrails.length; t++) {
     var tr = menuTrails[t];
     var trailAlpha = (tr.life / tr.maxLife) * 0.4;
     ctx.globalAlpha = trailAlpha;
-    ctx.fillStyle = tr.color;
+    ctx.fillStyle = "#ffffff";
     ctx.fillRect(tr.x - tr.size/2, tr.y - tr.size/2, tr.size, tr.size);
   }
 
